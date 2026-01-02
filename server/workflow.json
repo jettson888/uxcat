@@ -1,0 +1,240 @@
+{
+  "projectName": "杭州银行官网",
+  "description": "杭州银行官网是一款为用户提供金融服务的平台，包括个人银行、企业银行、信用卡、理财产品等服务。",
+  "workflows": [
+    {
+      "name": "首页浏览",
+      "description": "用户浏览首页内容",
+      "introduction": "1. 用户访问首页，查看银行服务概览。2. 浏览推荐的金融产品。3. 查看最新的银行公告。",
+      "workflowTree": {
+        "pageId": "homePage",
+        "children": [
+          {
+            "pageId": "personalBankingPage",
+            "children": []
+          },
+          {
+            "pageId": "corporateBankingPage",
+            "children": []
+          },
+          {
+            "pageId": "creditCardPage",
+            "children": []
+          },
+          {
+            "pageId": "financialProductsPage",
+            "children": []
+          }
+        ]
+      }
+    },
+    {
+      "name": "个人银行服务",
+      "description": "用户查看个人银行服务",
+      "introduction": "1. 用户进入个人银行页面。2. 浏览个人银行服务列表。3. 选择具体的服务进行查看。",
+      "workflowTree": {
+        "pageId": "personalBankingPage",
+        "children": [
+          {
+            "pageId": "savingsAccountPage",
+            "children": []
+          },
+          {
+            "pageId": "loanPage",
+            "children": []
+          }
+        ]
+      }
+    },
+    {
+      "name": "企业银行服务",
+      "description": "用户查看企业银行服务",
+      "introduction": "1. 用户进入企业银行页面。2. 浏览企业银行服务列表。3. 选择具体的服务进行查看。",
+      "workflowTree": {
+        "pageId": "corporateBankingPage",
+        "children": [
+          {
+            "pageId": "businessAccountPage",
+            "children": []
+          },
+          {
+            "pageId": "businessLoanPage",
+            "children": []
+          }
+        ]
+      }
+    },
+    {
+      "name": "信用卡服务",
+      "description": "用户查看信用卡服务",
+      "introduction": "1. 用户进入信用卡页面。2. 浏览信用卡产品列表。3. 选择具体的信用卡进行查看。",
+      "workflowTree": {
+        "pageId": "creditCardPage",
+        "children": [
+          {
+            "pageId": "creditCardDetailsPage",
+            "children": []
+          }
+        ]
+      }
+    },
+    {
+      "name": "理财产品",
+      "description": "用户查看理财产品",
+      "introduction": "1. 用户进入理财产品页面。2. 浏览理财产品列表。3. 选择具体的理财产品进行查看。",
+      "workflowTree": {
+        "pageId": "financialProductsPage",
+        "children": [
+          {
+            "pageId": "investmentDetailsPage",
+            "children": []
+          }
+        ]
+      }
+    }
+  ],
+  "pages": [
+    {
+      "pageId": "homePage",
+      "name": "首页",
+      "description": "首页是用户访问杭州银行官网的第一个页面，提供银行服务的整体概览。页面布局包括顶部导航栏、轮播图、快速导航、推荐产品、最新公告和底部信息。核心功能包括展示银行服务、推荐金融产品和最新公告。视觉元素包括银行logo、轮播图、服务图标、产品卡片和公告列表。",
+      "status": "pending",
+      "navigationList": [
+        {
+          "navigationId": "goPersonalBanking",
+          "navigationType": "页面导航",
+          "name": "个人银行",
+          "targetPageId": "personalBankingPage"
+        },
+        {
+          "navigationId": "goCorporateBanking",
+          "navigationType": "页面导航",
+          "name": "企业银行",
+          "targetPageId": "corporateBankingPage"
+        },
+        {
+          "navigationId": "goCreditCard",
+          "navigationType": "页面导航",
+          "name": "信用卡",
+          "targetPageId": "creditCardPage"
+        },
+        {
+          "navigationId": "goFinancialProducts",
+          "navigationType": "页面导航",
+          "name": "理财产品",
+          "targetPageId": "financialProductsPage"
+        }
+      ]
+    },
+    {
+      "pageId": "personalBankingPage",
+      "name": "个人银行",
+      "description": "个人银行页面展示了杭州银行为个人用户提供的各类银行服务。页面布局包括顶部导航栏、服务分类、服务列表和底部信息。核心功能包括展示个人银行服务、提供服务搜索和服务详情查看。视觉元素包括服务分类标签、服务卡片、搜索框和服务详情链接。",
+      "status": "pending",
+      "navigationList": [
+        {
+          "navigationId": "goSavingsAccount",
+          "navigationType": "页面导航",
+          "name": "储蓄账户",
+          "targetPageId": "savingsAccountPage"
+        },
+        {
+          "navigationId": "goLoan",
+          "navigationType": "页面导航",
+          "name": "贷款",
+          "targetPageId": "loanPage"
+        }
+      ]
+    },
+    {
+      "pageId": "corporateBankingPage",
+      "name": "企业银行",
+      "description": "企业银行页面展示了杭州银行为企业用户提供的各类银行服务。页面布局包括顶部导航栏、服务分类、服务列表和底部信息。核心功能包括展示企业银行服务、提供服务搜索和服务详情查看。视觉元素包括服务分类标签、服务卡片、搜索框和服务详情链接。",
+      "status": "pending",
+      "navigationList": [
+        {
+          "navigationId": "goBusinessAccount",
+          "navigationType": "页面导航",
+          "name": "企业账户",
+          "targetPageId": "businessAccountPage"
+        },
+        {
+          "navigationId": "goBusinessLoan",
+          "navigationType": "页面导航",
+          "name": "企业贷款",
+          "targetPageId": "businessLoanPage"
+        }
+      ]
+    },
+    {
+      "pageId": "creditCardPage",
+      "name": "信用卡",
+      "description": "信用卡页面展示了杭州银行提供的各类信用卡产品。页面布局包括顶部导航栏、信用卡分类、信用卡列表和底部信息。核心功能包括展示信用卡产品、提供信用卡搜索和信用卡详情查看。视觉元素包括信用卡分类标签、信用卡卡片、搜索框和信用卡详情链接。",
+      "status": "pending",
+      "navigationList": [
+        {
+          "navigationId": "goCreditCardDetails",
+          "navigationType": "页面导航",
+          "name": "信用卡详情",
+          "targetPageId": "creditCardDetailsPage"
+        }
+      ]
+    },
+    {
+      "pageId": "financialProductsPage",
+      "name": "理财产品",
+      "description": "理财产品页面展示了杭州银行提供的各类理财产品。页面布局包括顶部导航栏、理财产品分类、理财产品列表和底部信息。核心功能包括展示理财产品、提供理财产品搜索和理财产品详情查看。视觉元素包括理财产品分类标签、理财产品卡片、搜索框和理财产品详情链接。",
+      "status": "pending",
+      "navigationList": [
+        {
+          "navigationId": "goInvestmentDetails",
+          "navigationType": "页面导航",
+          "name": "理财产品详情",
+          "targetPageId": "investmentDetailsPage"
+        }
+      ]
+    },
+    {
+      "pageId": "savingsAccountPage",
+      "name": "储蓄账户",
+      "description": "储蓄账户页面展示了杭州银行为个人用户提供的储蓄账户服务。页面布局包括顶部导航栏、账户类型、账户详情和底部信息。核心功能包括展示储蓄账户类型、提供账户开户和账户管理。视觉元素包括账户类型标签、账户详情卡片、开户按钮和账户管理链接。",
+      "status": "pending",
+      "navigationList": []
+    },
+    {
+      "pageId": "loanPage",
+      "name": "贷款",
+      "description": "贷款页面展示了杭州银行为个人用户提供的贷款服务。页面布局包括顶部导航栏、贷款类型、贷款详情和底部信息。核心功能包括展示贷款类型、提供贷款申请和贷款计算器。视觉元素包括贷款类型标签、贷款详情卡片、申请按钮和贷款计算器链接。",
+      "status": "pending",
+      "navigationList": []
+    },
+    {
+      "pageId": "businessAccountPage",
+      "name": "企业账户",
+      "description": "企业账户页面展示了杭州银行为企业用户提供的账户服务。页面布局包括顶部导航栏、账户类型、账户详情和底部信息。核心功能包括展示企业账户类型、提供账户开户和账户管理。视觉元素包括账户类型标签、账户详情卡片、开户按钮和账户管理链接。",
+      "status": "pending",
+      "navigationList": []
+    },
+    {
+      "pageId": "businessLoanPage",
+      "name": "企业贷款",
+      "description": "企业贷款页面展示了杭州银行为企业用户提供的贷款服务。页面布局包括顶部导航栏、贷款类型、贷款详情和底部信息。核心功能包括展示企业贷款类型、提供贷款申请和贷款计算器。视觉元素包括贷款类型标签、贷款详情卡片、申请按钮和贷款计算器链接。",
+      "status": "pending",
+      "navigationList": []
+    },
+    {
+      "pageId": "creditCardDetailsPage",
+      "name": "信用卡详情",
+      "description": "信用卡详情页面展示了具体信用卡的详细信息。页面布局包括顶部导航栏、信用卡图片、信用卡详情、申请按钮和底部信息。核心功能包括展示信用卡详情、提供信用卡申请和信用卡权益。视觉元素包括信用卡图片、信用卡详情标签、申请按钮和权益列表。",
+      "status": "pending",
+      "navigationList": []
+    },
+    {
+      "pageId": "investmentDetailsPage",
+      "name": "理财产品详情",
+      "description": "理财产品详情页面展示了具体理财产品的详细信息。页面布局包括顶部导航栏、理财产品图片、理财产品详情、购买按钮和底部信息。核心功能包括展示理财产品详情、提供理财产品购买和理财产品收益。视觉元素包括理财产品图片、理财产品详情标签、购买按钮和收益列表。",
+      "status": "pending",
+      "navigationList": []
+    }
+  ]
+}

@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg width="16px" height="16px" viewBox="0 0 16 16" version="1.1" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink">
+    <title>icon/天气类/el-icon-sunrise</title>
+    <g id="icon/天气类/el-icon-sunrise" stroke="none" stroke-width="1" fill="none" fill-rule="evenodd">
+        <rect id="矩形" fill="#999999" x="1.33333333" y="12" width="13.3333333" height="1.33333333"></rect>
+        <path d="M8,5.33333333 C10.9455187,5.33333333 13.3333333,7.721148 13.3333333,10.6666667 L12,10.6666667 C12,8.45752767 10.209139,6.66666667 8,6.66666667 C5.790861,6.66666667 4,8.45752767 4,10.6666667 L2.66666667,10.6666667 C2.66666667,7.721148 5.05448133,5.33333333 8,5.33333333 Z" id="形状结合" fill="#999999" fill-rule="nonzero"></path>
+        <rect id="矩形" fill="#999999" x="7.33333333" y="2" width="1.33333333" height="2"></rect>
+        <polygon id="矩形备份" fill="#999999" transform="translate(12.6667, 5) rotate(-315) translate(-12.6667, -5)" points="12 4 13.3333333 4 13.3333333 6 12 6"></polygon>
+        <polygon id="矩形备份-2" fill="#999999" transform="translate(3.3333, 5) scale(-1, 1) rotate(-315) translate(-3.3333, -5)" points="2.66666667 4 4 4 4 6 2.66666667 6"></polygon>
+    </g>
+</svg>

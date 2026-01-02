@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg width="16px" height="16px" viewBox="0 0 16 16" version="1.1" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink">
+    <title>icon/基础类/el-icon-edit-outline</title>
+    <g id="icon/基础类/el-icon-edit-outline" stroke="none" stroke-width="1" fill="none" fill-rule="evenodd">
+        <path d="M8,2 L8,3.333 L3.33333333,3.33333333 L3.33333333,12.6666667 L12.6666667,12.6666667 L12.666,8 L14,8 L14,13 C14,13.5523 13.5523,14 13,14 L3,14 C2.44771667,14 2,13.5523 2,13 L2,3 C2,2.44771667 2.44771333,2 3,2 L8,2 Z" id="形状结合" fill="#999999"></path>
+        <path d="M10,2 C10.7363797,2 11.3333333,2.59695367 11.3333333,3.33333333 L11.3333333,9.33333333 L9.33333333,11.3333333 L7.33333333,9.33333333 L7.33333333,3.33333333 C7.33333333,2.59695367 7.930287,2 8.66666667,2 L10,2 Z M10,3.33333333 L8.66666667,3.33333333 L8.66666667,8.78066667 L9.33333333,9.44733333 L10,8.78 L10,3.33333333 Z" id="矩形" fill="#999999" fill-rule="nonzero" transform="translate(9.3333, 6.6667) rotate(-315) translate(-9.3333, -6.6667)"></path>
+    </g>
+</svg>

@@ -1,0 +1,60 @@
+.DS_Store
+node_modules
+/dist
+.appinfo.json
+
+# local env files
+# .env.local
+# .env.*.local
+
+# Log files
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# Editor directories and files
+.idea
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+.vscode/
+
+# Build artifacts
+*.log
+*.lock
+package-lock.json
+yarn.lock
+pnpm-lock.yaml
+
+# TypeScript
+*.tsbuildinfo
+src/auto-imports.d.ts
+src/components.d.ts
+
+# Vite
+.vite
+coverage/
+*.local
+
+# OS generated files
+Thumbs.db
+.DS_Store
+desktop.ini
+
+# Debug
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Editor
+.editorconfig
+.editor/
+*.tmp
+*.tmp~
+
+# Output
+*.out
+*.build

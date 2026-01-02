@@ -1,0 +1,20 @@
+{
+  "1764917631138": {
+    "createAt": "2025-12-05T06:53:51.153Z",
+    "status": "done",
+    "projectName": "淘宝电商平台",
+    "target": "web",
+    "imgUrl": "",
+    "resolution": "1920*1080",
+    "path": "/data/frontend-code/hzux/1764917631138"
+  },
+  "1764920528590": {
+    "createAt": "2025-12-05T07:40:36.039Z",
+    "status": "done",
+    "projectName": "员工管理系统",
+    "target": "web",
+    "imgUrl": "",
+    "resolution": "1920*1080",
+    "path": "/data/frontend-code/hzux/1764920528590"
+  }
+}

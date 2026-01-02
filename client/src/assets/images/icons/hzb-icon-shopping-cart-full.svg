@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg width="16px" height="16px" viewBox="0 0 16 16" version="1.1" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink">
+    <title>icon/消费类/el-icon-shopping-cart-full</title>
+    <g id="icon/消费类/el-icon-shopping-cart-full" stroke="none" stroke-width="1" fill="none" fill-rule="evenodd">
+        <path d="M3.87227719,1.33333333 L3.98520161,1.86031394 L4.44333333,4 L14.8132026,4 L14.6537205,4.79741076 L13.3203871,11.4640774 L13.2132026,12 L4.79438947,12 L4.68146506,11.4730194 L2.794,2.66666667 L1.33333333,2.66666667 L1.33333333,1.33333333 L3.87227719,1.33333333 Z M13.1866667,5.33333333 L4.72866667,5.33333333 L5.872,10.6666667 L12.12,10.6666667 L13.1866667,5.33333333 Z" id="路径-52" fill="#999999" fill-rule="nonzero"></path>
+        <circle id="椭圆形" fill="#999999" cx="5.66666667" cy="14.3333333" r="1"></circle>
+        <circle id="椭圆形备份" fill="#999999" cx="12.3333333" cy="14.3333333" r="1"></circle>
+        <polygon id="路径-53" fill="#999999" fill-rule="nonzero" points="8.51172792 1.09547389 9.0364668 1.4452998 13.0364668 4.11196647 12.2968665 5.22136686 8.82133333 2.90466667 7.2 5.06666667 6.13333333 4.26666667"></polygon>
+    </g>
+</svg>

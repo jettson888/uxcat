@@ -1,0 +1,30 @@
+{
+  "name": "nl2code-service",
+  "version": "1.0.0",
+  "description": "A service that generates code from natural language descriptions",
+  "main": "index.js",
+  "type": "module",
+  "scripts": {
+    "start": "node index.js",
+    "dev": "node index.js",
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [
+    "natural-language",
+    "code-generation",
+    "ai",
+    "llm",
+    "vue",
+    "workflow"
+  ],
+  "author": "AI UX Team",
+  "license": "MIT",
+  "dependencies": {
+    "archiver": "^7.0.1",
+    "axios": "^1.6.0",
+    "fs-extra": "^11.1.1"
+  },
+  "engines": {
+    "node": ">=15.14.0"
+  }
+}

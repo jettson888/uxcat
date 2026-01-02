@@ -1,0 +1,49 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>AI原型设计</title>
+</head>
+
+<body>
+  <div id="app"></div>
+  <script type="module" src="/public/_Global.js"></script>
+  <script type="module" src="/public/my-lib.iife.js"></script>
+  <script type="module" src="/public/utils.js"></script>
+  <script type="module" src="/public/business.js"></script>
+  <script type="module" src="/public/message.js"></script>
+  <script type="module" src="/src/main.js"></script>
+  <script>
+    window.onload = function() {
+
+      window._Global.configComponent.setDataValue = function (key, value) {
+        const keyArr = key.split(".")
+        if(keyArr.length > 1) {
+          const [k1, k2] = keyArr
+          this.proxy[k1][k2] = value
+        } else {
+          this.proxy[key] = value
+        }
+      }
+      window._Global.configComponent.getDataValue = function (key) {
+        const keyArr = key.split(".")
+        if(keyArr.length > 1) {
+          const [k1, k2] = keyArr
+          return this.proxy[k1][k2]
+        } else {
+          return this.proxy[key]
+        }
+      }
+      // 开启事件订阅
+      Message.addMessageListener();
+
+      // 开启拖拽
+      // Business.enableUniversalDrag();
+     
+    }
+  </script>
+</body>
+
+</html>
