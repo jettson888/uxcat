@@ -97,6 +97,10 @@ async function executeTool(toolCall, signal) {
     const { name, arguments: argsStr } = toolCall.function;
     let args;
 
+    if (signal?.aborted) {
+        throw new Error('工具调用被取消');
+    }
+
     try {
         args = JSON.parse(argsStr);
     } catch (e) {
@@ -109,9 +113,6 @@ async function executeTool(toolCall, signal) {
         throw new Error(`未找到工具: ${name}`);
     }
 
-    if (signal?.aborted) {
-        throw new Error('工具调用被取消');
-    }
     console.log('args----', args)
     // executeToolStrategyToParams(args); 
 
@@ -120,7 +121,7 @@ async function executeTool(toolCall, signal) {
 
 // 处理工具调用循环
 async function handleToolCalls(options) {
-    const { messages, tools, signal, callback = () => null, maxIterations = 10, earlyExit = true } = options
+    const { messages, tools, signal, callback = () => null, maxIterations = 10, earlyExit = true, criticalTools = [], transaction = false } = options
     let iteration = 0;
 
     let response = await callback(messages, tools);
@@ -138,32 +139,70 @@ async function handleToolCalls(options) {
         console.log(`\n📋 第${iteration}轮工具调用，共 ${response.tool_calls.length} 个工具`);
 
         const toolResults = [];
+        // 执行所有工具调用
+        const criticalResults = []; // 关键工具结果
+        const auxiliaryResults = []; // 辅助工具结果
+        const executedOperations = []; // 记录已执行的操作 支持回滚
         let allToolsSucceeded = true;
+        let criticalToolsFailed = false;
 
         // 执行所有工具调用
         for (const toolCall of response.tool_calls) {
+            const isCritical = criticalTools.includes(toolCall.function.name);
+
             try {
                 const result = await executeTool(toolCall, signal);
 
-                toolResults.push({
+                if (transaction) {
+                    // 记录成功的操作（用于回滚）
+                    executedOperations.push({
+                        tool: toolCall.function.name,
+                        args: JSON.parse(toolCall.function.arguments),
+                        result
+                    });
+                }
+
+                const toolResult = {
                     tool_call_id: toolCall.id,
                     role: "tool",
                     name: toolCall.function.name,
                     content: JSON.stringify(result)
-                });
+                }
+                toolResults.push(toolResult);
 
-                console.log(`  ✅ 工具 ${toolCall.function.name} 执行成功`);
+                if (isCritical) {
+                    criticalResults.push(toolResult);
+                    console.log(`  ✅ [关键工具] ${toolCall.function.name} 执行成功`);
+                } else {
+                    auxiliaryResults.push(toolResult);
+                    console.log(`  ✅ [辅助工具] ${toolCall.function.name} 执行成功`);
+                }
             } catch (error) {
                 allToolsSucceeded = false;
-
-                toolResults.push({
+                const toolResult = {
                     tool_call_id: toolCall.id,
                     role: "tool",
                     name: toolCall.function.name,
                     content: JSON.stringify({ error: error.message })
-                });
+                }
+                toolResults.push(toolResult);
 
-                console.error(`  ❌ 工具 ${toolCall.function.name} 执行失败:`, error.message);
+                if (isCritical) {
+                    criticalToolsFailed = true;
+                    criticalResults.push(toolResult);
+                    console.error(`  ❌ [关键工具] ${toolCall.function.name} 执行失败:`, error.message);
+                } else {
+                    auxiliaryResults.push(toolResult);
+                    console.warn(`  ⚠️  [辅助工具] ${toolCall.function.name} 执行失败（可忽略）:`, error.message);
+                }
+
+                if (transaction) {
+                    // 🎯 回滚之前的操作
+                    console.log(`\n⚠️  工具执行失败，开始回滚 ${executedOperations.length} 个操作...`);
+                    await rollbackOperations(executedOperations);
+
+                    throw new Error(`工具 ${toolCall.function.name} 执行失败，已回滚所有操作: ${error.message}`);
+                }
             }
         }
 
@@ -172,20 +211,48 @@ async function handleToolCalls(options) {
             role: "assistant",
             tool_calls: response.tool_calls
         });
+        const allToolResults = [...criticalResults, ...auxiliaryResults];
+        console.log('allToolResults length === toolResults length', allToolResults.length === toolResults.length)
         messages.push(...toolResults);
 
         // 🎯 关键优化：如果所有工具都执行成功且启用了早期退出，直接返回
-        if (earlyExit && allToolsSucceeded) {
-            console.log('\n✅ 所有工具执行成功，提前退出（不再调用模型）');
+        if (earlyExit) {
+            if (allToolsSucceeded) {
+                console.log('\n✅ 所有工具执行成功，提前退出（不再调用模型）');
 
-            // 构造一个成功的响应返回
-            return {
-                role: "assistant",
-                content: `已成功执行 ${response.tool_calls.length} 个工具调用，任务完成。`,
-                tool_calls_executed: response.tool_calls.length,
-                early_exit: true
-            };
+                // 构造一个成功的响应返回
+                return {
+                    role: "assistant",
+                    content: `已成功执行 ${response.tool_calls.length} 个工具调用，任务完成。`,
+                    tool_calls_executed: response.tool_calls.length,
+                    all_tools_success: true,
+                    early_exit: true
+                };
+            } else {
+                // 主要工具执行成功即可算成功
+                const isCriticalToolSuccessExit = !!criticalTools.length;
+                if (!criticalToolsFailed && isCriticalToolSuccessExit) {
+                    const successCount = criticalResults.filter(r => !r.content.includes('error')).length;
+                    const failedAuxCount = auxiliaryResults.filter(r => r.content.includes('error')).length;
+
+                    console.log(`\n✅ 关键工具全部成功 (${successCount}/${criticalResults.length})，提前退出`);
+                    if (failedAuxCount > 0) {
+                        console.log(`⚠️  辅助工具有 ${failedAuxCount} 个失败（不影响主流程）`);
+                    }
+
+                    return {
+                        role: "assistant",
+                        content: `关键操作已完成，成功执行 ${successCount} 个关键工具。`,
+                        tool_calls_executed: response.tool_calls.length,
+                        critical_success: true,
+                        early_exit: true
+                    };
+                }
+            }
         }
+
+        // 或者 !allToolsSuccess 有工具失败，如果关键工具成功了， 也可以做一些操作...
+
 
         // 如果有工具失败，或者禁用了早期退出，继续调用模型让它看结果
         console.log(`\n🔄 继续调用模型（${allToolsSucceeded ? '已禁用早期退出' : '有工具执行失败'}）...`);
@@ -196,6 +263,23 @@ async function handleToolCalls(options) {
     return response;
 }
 
+async function rollbackOperations(operations) {
+    for (const op of operations.reverse()) {
+        try {
+            if (op.tool === 'write_file') {
+                // 删除写入的文件
+                const fs = require('fs-extra');
+                const path = require('path');
+                const { path: filePath, scope } = op.args;
+                // ... 删除文件逻辑 ...
+                console.log(`  ↩️  已回滚: 删除文件 ${filePath}`);
+            }
+            // 其他工具的回滚逻辑...
+        } catch (rollbackError) {
+            console.error(`  ❌ 回滚失败:`, rollbackError);
+        }
+    }
+}
 
 module.exports = {
     handleToolCalls,

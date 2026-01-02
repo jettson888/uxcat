@@ -85,6 +85,8 @@ async function executeFlowGeneration(projectId, prompt) {
         ];
 
         const availableTools = fileTools
+            .filter(t => t.name !== 'read_file')
+            .filter(t => t.name !== 'list_files')
             .map(t => ({
                 type: "function",
                 function: {
@@ -99,7 +101,9 @@ async function executeFlowGeneration(projectId, prompt) {
             const options = {
                 messages: flowMessages,
                 tools: availableTools,
+                criticalTools: ['write_file'], // 关键工具优先 + 部分成功处理
                 signal,
+                // transaction: false,  // 是否支持事务
                 callback: async (messages, tools) => {
                     return await callChatCompletion({
                         messages,
@@ -127,7 +131,7 @@ async function executeFlowGeneration(projectId, prompt) {
         console.error(`项目 ${projectId} 生成失败:`, error);
 
         // 判断是否超时
-        if (error.message.includes('超时')) {
+        if (error.message.includes('超时') || error.message.includes('timeout')) {
             taskManager.timeoutTask(projectId);
         } else {
             taskManager.failTask(projectId, error);

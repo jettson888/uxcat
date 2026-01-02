@@ -1,6 +1,27 @@
 // 添加超时和重试机制
 // 若应用在axios fetch 需要在外层超时时中断内层请求避免占用网络资源，或内层网络请求必须设置且小于外层超时时间
+
+async function callWithTimeout(fn, timeout = 120000) { // 2min
+    const abortController = new AbortController();
+    const timeoutPromise = new Promise((_, reject) => {
+        const timeoutId = setTimeout(() => {
+            abortController.abort();
+            reject(new Error(`操作超时 (${timeout}ms)`));
+        }, timeout);
+
+        Promise.race([fn(abortController.signal), timeoutPromise])
+            .then(result => clearTimeout(timeoutId) || result)
+            .catch(error => clearTimeout(timeoutId) || Promise.reject(error));
+    });
+    return await timeoutPromise;
+}
+
 async function callWithTimeoutAndRetry(fn, retries = 3, timeout = 120000) { // 2min
+    // ✅ 新增：retries=0 表示不重试
+    if (retries === 0) {
+        return await callWithTimeout(fn, timeout);
+    }
+
     for (let i = 0; i < retries; i++) {
         const abortController = new AbortController();
         let timeoutId;
@@ -37,5 +58,6 @@ async function callWithTimeoutAndRetry(fn, retries = 3, timeout = 120000) { // 2
 
 
 module.exports = {
-    callWithTimeoutAndRetry
+    callWithTimeoutAndRetry,
+    callWithTimeout
 }

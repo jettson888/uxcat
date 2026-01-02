@@ -1,12 +1,14 @@
 ---
 trigger: always_on
 ---
-需求: 自然语言转Vue2代码
-
+重要规则:
 1. 忽略.bak文件夹内容.bak是存储项目代码副本.
-2. client是实时代码运行工程,用于server调用完llm生成完代码并copy到client实现实时渲染.
-3. server工程是提供服务的工程,服务是原生http server服务,因为后续这个服务需要被嵌入到electron中所以希望轻量.
-4. skeleton是提供用于与用户交互的工程,在这个工程里主要页面有3个 1.home/index.vue (需求输入页面) 2.flowchart/index.vue (流程图展示编辑选择页面) 3.product/index.vue (代码生成渲染后的预览页面)
+2. 忽略程序说明文档、server/程序说明说明文档。
+
+需求: 自然语言转Vue2代码
+1. client是实时代码运行工程,用于server调用完llm生成完代码并copy到client实现实时渲染.
+2. server工程是提供服务的工程,服务是原生http server服务,因为后续这个服务需要被嵌入到electron中所以希望轻量.
+3. skeleton是提供用于与用户交互的工程,在这个工程里主要页面有3个 1.home/index.vue (需求输入页面) 2.flowchart/index.vue (流程图展示编辑选择页面) 3.product/index.vue (代码生成渲染后的预览页面)
 
 整体交互流程:
 交互1:
