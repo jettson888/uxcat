@@ -1,5 +1,5 @@
 const flowPrompt = require('./prompts/flow.js');
-const codePromptTemplate = require('./prompts/code.js');
+const { HZBUI_CODE_PROMPT, CODE_PROMPT } = require('./prompts/code.js');
 const fileTools = require('./tools/file-tools.js');
 const knowledgeTool = require('./tools/knowledge-tool.js');
 const { checkVueCode } = require('./utils/eslint-checker.js');
@@ -399,7 +399,13 @@ async function generateSinglePageWithSteps(projectId, page, signal) {
             }
 
             // 单个页面生成任务的总超时时间：4分钟
-            const result = await generatePageWithSteps(projectId, page, signal)
+            let strict = false;
+            let result = {};
+            if (strict) {
+                result = await generatePageWithStepsInStrict(projectId, page, signal)
+            } else {
+                result = await generatePageWithStepsInLoose(projectId, page, signal)
+            }
 
             // 成功
             await updatePageStatus(projectId, pageId, 'done', result);
@@ -436,9 +442,10 @@ async function generateSinglePageWithSteps(projectId, page, signal) {
 }
 
 /**
+ * 严格模式，必须都成功才成功，一个不成功抛错
  * 执行页面生成的三个步骤
  */
-async function generatePageWithSteps(projectId, page, signal) {
+async function generatePageWithStepsInStrict(projectId, page, signal) {
     const { pageId, pageName, description, navigation = [] } = page;
 
     // 步骤1: 调用 LLM 分析需要哪些组件（3分钟超时）
@@ -450,6 +457,65 @@ async function generatePageWithSteps(projectId, page, signal) {
     console.log(`  📚 步骤2: 查询组件使用示例...`);
     const componentExamples = await fetchComponentExamples(componentsNeeded, signal);
     console.log(`  ✅ 获取到 ${componentExamples.length} 个组件示例`);
+
+    // 步骤3: 调用 LLM 生成完整代码（3分钟超时）
+    console.log(`  💻 步骤3: 生成完整页面代码...`);
+    const code = await generatePageCode(page, componentExamples, signal);
+    console.log(`  ✅ 代码生成完成，长度: ${code.length}`);
+
+    // 步骤4: ESLint 检查
+    console.log(`  🔍 步骤4: ESLint 检查...`);
+    const lintResult = await checkVueCode(code);
+    if (!lintResult.valid) {
+        throw new Error(`ESLint 检查失败: ${lintResult.errors.join(', ')}`);
+    }
+    console.log(`  ✅ ESLint 检查通过`);
+
+    // 步骤5: 写入磁盘
+    console.log(`  💾 步骤5: 写入文件...`);
+    const filePath = await savePageToFile(projectId, pageId, pageName, code);
+    console.log(`  ✅ 文件写入成功: ${filePath}`);
+
+    return { filePath, codeLength: code.length };
+}
+
+/**
+ * 执行页面生成的三个步骤
+ */
+async function generatePageWithStepsInLoose(projectId, page, signal) {
+    const { pageId, pageName, description, navigation = [] } = page;
+    let componentsNeeded = [];
+    let componentExamples = [];
+
+    // 步骤1: 调用 LLM 分析需要哪些组件（3分钟超时）
+    console.log(`  📝 步骤1: 分析页面所需组件...`);
+    try {
+        componentsNeeded = await analyzeRequiredComponents(page, signal);
+        // 如果返回为空或非数组，视为失败/无结果
+        if (!Array.isArray(componentsNeeded) || componentsNeeded.length === 0) {
+            console.log(`  ⚠️ 分析结果为空，跳过组件示例获取`);
+            componentsNeeded = [];
+        } else {
+            console.log(`  ✅ 需要的组件:`, componentsNeeded);
+        }
+    } catch (error) {
+        console.warn(`  ⚠️ 分析组件失败，跳过组件示例获取: ${error.message}`);
+        componentsNeeded = [];
+    }
+
+    // 步骤2: 调用 knowledge_chat 获取组件示例（批量查询）
+    if (componentsNeeded.length > 0) {
+        console.log(`  📚 步骤2: 查询组件使用示例...`);
+        try {
+            componentExamples = await fetchComponentExamples(componentsNeeded, signal);
+            console.log(`  ✅ 获取到 ${componentExamples.length} 个组件示例`);
+        } catch (error) {
+            console.warn(`  ⚠️ 获取组件示例失败: ${error.message}`);
+            componentExamples = [];
+        }
+    } else {
+        console.log(`  ⏭️ 跳过步骤2: 无需查询组件示例`);
+    }
 
     // 步骤3: 调用 LLM 生成完整代码（3分钟超时）
     console.log(`  💻 步骤3: 生成完整页面代码...`);
@@ -537,11 +603,17 @@ async function generatePageCode(page, componentExamples, signal) {
     const { pageName, description, navigation = [] } = page;
 
     // 组装组件示例文本
-    const componentsText = componentExamples
-        .map(e => `## ${e.component}\n${e.example}`)
-        .join('\n\n');
+    let componentsText = '';
+    if (Array.isArray(componentExamples) && componentExamples.length > 0) {
+        const examplesText = componentExamples
+            .map(e => `## ${e.component}\n${e.example}`)
+            .join('\n\n');
+        // 只有在有示例时才添加 <hzb-ui> 标签
+        componentsText = `<hzb-ui>\n${examplesText}\n</hzb-ui>`;
+    }
 
     // 使用代码模板
+    const codePromptTemplate = componentExamples.length > 0 ? HZBUI_CODE_PROMPT : CODE_PROMPT;
     const prompt = replacePlaceholders(codePromptTemplate, {
         pageName,
         pageDesc: description,
