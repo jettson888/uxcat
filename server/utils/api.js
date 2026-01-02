@@ -4,24 +4,26 @@ const config = require('../config.js')
 const CHAT_GPT_API = `${config.LLM_HOST}/v1/chat/completions`;
 
 async function callChatCompletion(params) {
-  const { messages, tools = null, model = "mistralai/devstral-2512:free", timeout = 60000, signal } = params;
+  const { messages, tools = null, model = "mistralai/devstral-2512:free", timeout = 60000, signal, headers } = params;
 
   const body = {
     model,
     messages,
     temperature: 0.3,
   };
+  const defaultHeaders = {
+    Authorization: `Bearer ${config.OPEN_ROUTER_KEY}`,
+    'Content-Type': 'application/json',
+  };
   const options = {
     timeout,
-    headers: {
-      Authorization: `Bearer ${config.OPEN_ROUTER_KEY}`,
-      'Content-Type': 'application/json',
-    },
+    headers: defaultHeaders,
   }
   console.log('params----', params)
   try {
     if (tools) body.tools = tools;
     if (signal) options.signal = signal;
+    if (headers) options.headers = { ...defaultHeaders, ...headers };
 
     const res = await axios.post(CHAT_GPT_API, body, options);
     return res.data.choices[0].message;
