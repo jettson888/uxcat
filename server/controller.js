@@ -487,7 +487,6 @@ async function analyzeRequiredComponents(page, signal) {
         { role: 'system', content: '你是一个 Vue 组件分析专家，擅长根据需求识别所需的 UI 组件。' },
         { role: 'user', content: prompt }
     ];
-
     const response = await callChatCompletion({
         messages,
         signal,
@@ -558,11 +557,41 @@ async function generatePageCode(page, componentExamples, signal) {
         { role: 'user', content: prompt }
     ];
 
-    const response = await callChatCompletion({
-        messages,
-        signal,
-        timeout: 120000 // 2分钟
-    });
+    const availableTools = fileTools
+        .filter(t => t.name === 'write_file')
+        .map(t => {
+            return {
+                type: "function",
+                function: {
+                    name: t.name,
+                    description: t.description,
+                    parameters: t.input_schema
+                }
+            }
+        })
+
+    // 使用超时控制包装器
+    const task = async () => {
+        const options = {
+            messages,
+            tools: availableTools,
+            signal,
+            // transaction: false,  // 是否支持事务
+            callback: async (messages, tools) => {
+                return await callChatCompletion({
+                    messages,
+                    tools,
+                    signal,
+                    timeout: 120000
+                });
+            },
+            maxIterations: 10,
+            earlyExit: true  // ✅ 启用早期退出：工具执行成功后不再调用模型
+        }
+        return await handleToolCalls(options);
+    }
+
+    const response = await task();
 
     let code = response.content || '';
 
