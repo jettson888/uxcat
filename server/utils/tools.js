@@ -260,6 +260,7 @@ async function handleToolCalls(options) {
         console.log(`🤖 第${iteration + 1}次调用模型，返回:`, response.content ? '文本内容' : '继续工具调用');
     }
 
+    // 有可能模型决策不用工具 需要todo..
     return response;
 }
 

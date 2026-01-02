@@ -138,7 +138,7 @@ import { ref } from "vue";
 import BaseConfig from "./BaseConfig.vue"
 import MarginAndPadding from "./MarginAndPadding.vue";
 import Border from "./Border.vue"
-import Shadow from "./ Shadow.vue"
+import Shadow from "./Shadow.vue"
 import ItemProperty from "./ItemProperty.vue";
 // import PropDrawer from "./PropDrawer.vue";
 import { CaretRight, CaretBottom } from '@element-plus/icons-vue'

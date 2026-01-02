@@ -98,6 +98,11 @@ async function executeFlowGeneration(projectId, prompt) {
             { role: "user", content: prompt }
         ];
 
+        // 注意权限问题，确保目录可写
+        /**
+         * try {  await fs.promises.access(`${config.PROJECT_DIR}/${projectId}/1/data`, fs.constants.W_OK);  } catch (error) {  // 权限不足  }
+         */
+
         const availableTools = fileTools
             .filter(t => t.name !== 'read_file')
             .filter(t => t.name !== 'list_files')
@@ -393,7 +398,7 @@ async function generateSinglePageWithSteps(projectId, page, signal) {
 
     while (retries >= 0) {
         try {
-            // 检查是否已取消
+            // 检查是否已取消 场景 A（排队时被取消/重试前被取消）：Gatekeeper
             if (signal?.aborted) {
                 throw new Error('任务被取消');
             }
@@ -405,6 +410,11 @@ async function generateSinglePageWithSteps(projectId, page, signal) {
                 result = await generatePageWithStepsInStrict(projectId, page, signal)
             } else {
                 result = await generatePageWithStepsInLoose(projectId, page, signal)
+            }
+
+            // 再次检查是否已取消（防止在生成过程中被取消但未抛出错误的情况）
+            if (signal?.aborted) {
+                throw new Error('任务被取消');
             }
 
             // 成功
@@ -504,6 +514,8 @@ async function generatePageWithStepsInLoose(projectId, page, signal) {
     }
 
     // 步骤2: 调用 knowledge_chat 获取组件示例（批量查询）
+    // 场景 B（执行中被取消）：
+    if (signal?.aborted) throw new Error('任务被取消');
     if (componentsNeeded.length > 0) {
         console.log(`  📚 步骤2: 查询组件使用示例...`);
         try {
@@ -518,11 +530,13 @@ async function generatePageWithStepsInLoose(projectId, page, signal) {
     }
 
     // 步骤3: 调用 LLM 生成完整代码（3分钟超时）
+    if (signal?.aborted) throw new Error('任务被取消');
     console.log(`  💻 步骤3: 生成完整页面代码...`);
     const code = await generatePageCode(page, componentExamples, signal);
     console.log(`  ✅ 代码生成完成，长度: ${code.length}`);
 
     // 步骤4: ESLint 检查
+    if (signal?.aborted) throw new Error('任务被取消');
     console.log(`  🔍 步骤4: ESLint 检查...`);
     const lintResult = await checkVueCode(code);
     if (!lintResult.valid) {
@@ -531,6 +545,7 @@ async function generatePageWithStepsInLoose(projectId, page, signal) {
     console.log(`  ✅ ESLint 检查通过`);
 
     // 步骤5: 写入磁盘
+    if (signal?.aborted) throw new Error('任务被取消');
     console.log(`  💾 步骤5: 写入文件...`);
     const filePath = await savePageToFile(projectId, pageId, pageName, code);
     console.log(`  ✅ 文件写入成功: ${filePath}`);
