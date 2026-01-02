@@ -13,7 +13,7 @@ module.exports = {
   },
   async execute({ query }) {
     const res = await axios.post(KNOWLEDGE_API, { query }, {
-      timeout: 30000 // 30秒超时
+      timeout: 60000 // 60秒超时
     });
     return res.data.response || "无相关文档";
   }
