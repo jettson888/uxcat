@@ -44,7 +44,16 @@ async function handleChatCompletions(req, res, data) {
     try {
         // 1. 立即创建任务并返回
         const taskId = `generate-flow_${projectId}`
-        const task = taskManager.createTask(taskId, TASK_TYPE['generate-flow']);
+        // 创建或更新任务
+        if (taskManager.getTask(taskId)) {
+            taskManager.updateTask(taskId, {
+                status: 'pending',
+                updatedAt: Date.now()
+            });
+        } else {
+            taskManager.createTask(taskId, TASK_TYPE['generate-flow']);
+        }
+
 
         res.writeHead(200, { "Content-Type": "application/json" });
         res.end(JSON.stringify({
@@ -268,37 +277,40 @@ async function executeCodeGeneration(projectId, pages) {
     console.log(`\n📦 开始批量生成 ${pages.length} 个页面`);
 
     try {
-        // 为每个页面创建生成任务
-        const tasks = pages.map(page => ({
-            pageId: page.pageId,
-            taskFn: async (signal) => {
-                const taskId = `generate-code_${page.pageId}`;
+        const task = (page) => {
+            return {
+                pageId: page.pageId,
+                taskFn: async (signal) => {
+                    const taskId = `generate-code_${page.pageId}`;
 
-                try {
-                    // 标记任务开始处理
-                    taskManager.startTask(taskId);
+                    try {
+                        // 标记任务开始处理
+                        taskManager.startTask(taskId);
 
-                    // 执行生成
-                    const result = await generateSinglePageWithSteps(projectId, page, signal);
+                        // 执行生成
+                        const result = await generateSinglePageWithSteps(projectId, page, signal);
 
-                    // 标记任务完成
-                    taskManager.completeTask(taskId, result);
+                        // 标记任务完成
+                        taskManager.completeTask(taskId, result);
 
-                    return { success: true, pageId: page.pageId, ...result };
-                } catch (error) {
-                    // 判断是否超时
-                    if (error.message.includes('超时') || error.message.includes('timeout')) {
-                        taskManager.timeoutTask(taskId);
-                    } else if (error.message.includes('取消')) {
-                        // 任务被取消，不更新状态（保持 pending）
-                        console.log(`⚠️  任务被取消: ${taskId}`);
-                    } else {
-                        taskManager.failTask(taskId, error);
+                        return { success: true, pageId: page.pageId, ...result };
+                    } catch (error) {
+                        // 判断是否超时
+                        if (error.message.includes('超时') || error.message.includes('timeout')) {
+                            taskManager.timeoutTask(taskId);
+                        } else if (error.message.includes('取消')) {
+                            // 任务被取消，不更新状态（保持 pending）
+                            console.log(`⚠️  任务被取消: ${taskId}`);
+                        } else {
+                            taskManager.failTask(taskId, error);
+                        }
+                        return { success: false, pageId: page.pageId, error: error.message };
                     }
-                    return { success: false, pageId: page.pageId, error: error.message };
                 }
             }
-        }));
+        }
+        // 为每个页面创建生成任务
+        const tasks = pages.map(page => task(page));
 
         // 使用队列管理器批量执行
         const results = await pageQueueManager.addBatchTasks(tasks);
@@ -371,7 +383,7 @@ async function executeSinglePageGeneration(projectId, page) {
  */
 async function generateSinglePageWithSteps(projectId, page, signal) {
     const { pageId, pageName, description, navigation = [] } = page;
-    let retries = 2; // 重试2次
+    let retries = 3; // 重试3次
     let lastError = null;
 
     console.log(`\n🚀 开始生成页面: ${pageName} (${pageId})`);
