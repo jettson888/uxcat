@@ -9,7 +9,7 @@ const { handleToolCalls } = require('./utils/tools.js');
 const { callChatCompletion } = require('./utils/api.js');
 const { replacePlaceholders } = require('./utils/slot-template.js');
 const taskManager = require('./utils/task-manager.js');
-const ConcurrencyController = require('./utils/concurrency.js');
+const pageQueueManager = require('./utils/page-queue-manager.js');
 const fs = require('fs-extra');
 const path = require('path');
 
@@ -178,26 +178,78 @@ function handleTaskStatus(req, res, data) {
 
 async function handleGenerateCode(req, res, data) {
     const { projectId, pages = [], pageId = "", pageName = "", description = "" } = data
-    const taskId = `generate-code_${projectId}`
+
     try {
-        // 1. 立即创建任务并返回
-        const task = taskManager.createTask(taskId, TASK_TYPE['generate-code']);
+        // 判断是批量生成还是单页面重新生成
+        const isSinglePageRegenerate = !pages.length && pageId && pageName && description;
+
+        let taskIds = [];
+        let message = '';
+
+        if (isSinglePageRegenerate) {
+            // 单页面重新生成
+            const taskId = `generate-code_${pageId}`;
+            taskIds = [taskId];
+            message = `页面 ${pageName} 重新生成任务已创建`;
+
+            // 创建或更新任务
+            if (taskManager.getTask(taskId)) {
+                taskManager.updateTask(taskId, {
+                    status: 'pending',
+                    updatedAt: Date.now()
+                });
+            } else {
+                taskManager.createTask(taskId, TASK_TYPE['generate-code']);
+            }
+
+            // 异步执行单页面生成
+            setImmediate(() => {
+                executeSinglePageGeneration(projectId, {
+                    pageId,
+                    pageName,
+                    description
+                }).catch(error => {
+                    console.error(`页面 ${pageId} 生成失败:`, error);
+                });
+            });
+
+        } else if (pages.length > 0) {
+            // 批量生成多个页面
+            taskIds = pages.map(p => `generate-code_${p.pageId}`);
+            message = `批量生成 ${pages.length} 个页面任务已创建`;
+
+            // 为每个页面创建任务
+            pages.forEach(page => {
+                const taskId = `generate-code_${page.pageId}`;
+                if (taskManager.getTask(taskId)) {
+                    taskManager.updateTask(taskId, {
+                        status: 'pending',
+                        updatedAt: Date.now()
+                    });
+                } else {
+                    taskManager.createTask(taskId, TASK_TYPE['generate-code']);
+                }
+            });
+
+            // 异步执行批量生成
+            setImmediate(() => {
+                executeCodeGeneration(projectId, pages).catch(error => {
+                    console.error(`项目 ${projectId} 批量生成失败:`, error);
+                });
+            });
+
+        } else {
+            // 参数错误
+            throw new Error('请提供 pages 数组或单个页面信息（pageId, pageName, description）');
+        }
 
         res.writeHead(200, { "Content-Type": "application/json" });
         res.end(JSON.stringify({
             success: true,
             projectId,
-            taskId: projectId,
-            status: task.status,
-            message: '代码生成任务已创建，请轮询查询状态'
+            taskIds,
+            message
         }));
-
-        // 2. 异步执行实际的代码生成（不阻塞响应）
-        setImmediate(() => {
-            executeCodeGeneration(projectId, pages).catch(error => {
-                console.error(`项目 ${projectId} 代码生成失败:`, error);
-            });
-        });
 
     } catch (error) {
         console.error('创建代码生成任务失败:', error);
@@ -210,55 +262,106 @@ async function handleGenerateCode(req, res, data) {
 };
 
 /**
- * 执行代码生成（并发控制）
+ * 执行代码生成（批量，使用队列管理）
  */
 async function executeCodeGeneration(projectId, pages) {
-    const taskId = `generate-code_${projectId}`
+    console.log(`\n📦 开始批量生成 ${pages.length} 个页面`);
+
     try {
-        // 标记任务开始处理
-        taskManager.startTask(taskId);
-
-        // 创建并发控制器（最大并发数3）
-        const concurrency = new ConcurrencyController(3);
-
         // 为每个页面创建生成任务
-        const pageTasks = pages.map(page => async () => {
-            return await generateSinglePage(projectId, page);
-        });
+        const tasks = pages.map(page => ({
+            pageId: page.pageId,
+            taskFn: async (signal) => {
+                const taskId = `generate-code_${page.pageId}`;
 
-        // 并发执行所有页面生成任务
-        const results = await concurrency.runAll(pageTasks);
+                try {
+                    // 标记任务开始处理
+                    taskManager.startTask(taskId);
 
-        // 检查结果
-        const successCount = results.filter(r => r.success).length;
-        const failedPages = results.filter(r => !r.success);
+                    // 执行生成
+                    const result = await generateSinglePageWithSteps(projectId, page, signal);
 
-        if (successCount === pages.length) {
-            // 全部成功
-            taskManager.completeTask(taskId, {
-                message: `成功生成 ${successCount} 个页面`,
-                pages: results
-            });
-        } else if (successCount > 0) {
-            // 部分成功
-            taskManager.completeTask(taskId, {
-                message: `成功生成 ${successCount}/${pages.length} 个页面`,
-                pages: results,
-                warnings: `${failedPages.length} 个页面生成失败`
-            });
-        } else {
-            // 全部失败
-            taskManager.failTask(taskId, new Error(`所有页面生成失败`));
-        }
+                    // 标记任务完成
+                    taskManager.completeTask(taskId, result);
+
+                    return { success: true, pageId: page.pageId, ...result };
+                } catch (error) {
+                    // 判断是否超时
+                    if (error.message.includes('超时') || error.message.includes('timeout')) {
+                        taskManager.timeoutTask(taskId);
+                    } else if (error.message.includes('取消')) {
+                        // 任务被取消，不更新状态（保持 pending）
+                        console.log(`⚠️  任务被取消: ${taskId}`);
+                    } else {
+                        taskManager.failTask(taskId, error);
+                    }
+                    return { success: false, pageId: page.pageId, error: error.message };
+                }
+            }
+        }));
+
+        // 使用队列管理器批量执行
+        const results = await pageQueueManager.addBatchTasks(tasks);
+
+        // 统计结果
+        const successCount = results.filter(r => r.status === 'fulfilled' && r.value.success).length;
+        const failedCount = results.length - successCount;
+
+        console.log(`\n✅ 批量生成完成: ${successCount} 成功, ${failedCount} 失败`);
 
     } catch (error) {
-        console.error(`项目 ${projectId} 代码生成失败:`, error);
-        taskManager.failTask(taskId, error);
+        console.error(`项目 ${projectId} 批量生成失败:`, error);
     }
 }
 
 /**
- * 生成单个页面（带重试机制）
+ * 执行单页面生成（重新生成）
+ */
+async function executeSinglePageGeneration(projectId, page) {
+    const { pageId, pageName, description } = page;
+    const taskId = `generate-code_${pageId}`;
+
+    console.log(`\n🔄 重新生成页面: ${pageName} (${pageId})`);
+
+    try {
+        // 添加到队列（会自动取消该页面的旧任务）
+        await pageQueueManager.addTask(pageId, async (signal) => {
+            try {
+                // 标记任务开始处理
+                taskManager.startTask(taskId);
+
+                // 执行生成
+                const result = await generateSinglePageWithSteps(projectId, page, signal);
+
+                // 标记任务完成
+                taskManager.completeTask(taskId, result);
+
+                return result;
+            } catch (error) {
+                // 判断是否超时
+                if (error.message.includes('超时') || error.message.includes('timeout')) {
+                    taskManager.timeoutTask(taskId);
+                } else if (error.message.includes('取消')) {
+                    // 任务被取消，不更新状态
+                    console.log(`⚠️  任务被取消: ${taskId}`);
+                } else {
+                    taskManager.failTask(taskId, error);
+                }
+                throw error;
+            }
+        });
+
+        console.log(`✅ 页面重新生成成功: ${pageName}`);
+
+    } catch (error) {
+        if (!error.message.includes('取消')) {
+            console.error(`页面重新生成失败: ${pageName}`, error);
+        }
+    }
+}
+
+/**
+ * 生成单个页面（带重试机制和取消支持）
  * 步骤：
  * 1. 调用 LLM 分析需要哪些组件
  * 2. 调用 knowledge_chat 获取组件示例
@@ -266,7 +369,7 @@ async function executeCodeGeneration(projectId, pages) {
  * 4. ESLint 检查
  * 5. 写入磁盘
  */
-async function generateSinglePage(projectId, page) {
+async function generateSinglePageWithSteps(projectId, page, signal) {
     const { pageId, pageName, description, navigation = [] } = page;
     let retries = 2; // 重试2次
     let lastError = null;
@@ -278,11 +381,13 @@ async function generateSinglePage(projectId, page) {
 
     while (retries >= 0) {
         try {
+            // 检查是否已取消
+            if (signal?.aborted) {
+                throw new Error('任务被取消');
+            }
+
             // 单个页面生成任务的总超时时间：4分钟
-            const result = await callWithTimeout(
-                async (signal) => await generatePageWithSteps(projectId, page, signal),
-                240000 // 4分钟
-            );
+            const result = await generatePageWithSteps(projectId, page, signal)
 
             // 成功
             await updatePageStatus(projectId, pageId, 'done', result);
@@ -290,6 +395,12 @@ async function generateSinglePage(projectId, page) {
             return { success: true, pageId, pageName, ...result };
 
         } catch (error) {
+            // 如果是取消错误，直接抛出不重试
+            if (error.message.includes('取消') || signal?.aborted) {
+                await updatePageStatus(projectId, pageId, 'pending'); // 恢复为待生成
+                throw error;
+            }
+
             lastError = error;
             console.error(`❌ 页面生成失败 (剩余重试: ${retries}):`, error.message);
 
@@ -309,7 +420,7 @@ async function generateSinglePage(projectId, page) {
     const status = (lastError.message.includes('超时') || lastError.message.includes('timeout')) ? 'timeout' : 'error';
     await updatePageStatus(projectId, pageId, status, { error: lastError.message });
     console.error(`💥 页面生成最终失败: ${pageName} - ${lastError.message}`);
-    return { success: false, pageId, pageName, error: lastError.message, status };
+    throw lastError; // 抛出错误而不是返回对象
 }
 
 /**
