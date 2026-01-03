@@ -15,6 +15,7 @@
 ## 修复方案
 
 修改 `_parseTaskId` 方法中的 code 任务解析逻辑，使用数字序列识别算法：
+
 - 查找第一个数字序列后的连字符作为分界点
 - 这符合常见的命名约定：`{name}-{number}` 作为 projectId，`{name}-{number}` 作为 pageId
 
@@ -22,14 +23,14 @@
 
 ### 1. Flow 任务测试
 
-- **任务ID格式**: `generate-flow-{projectId}`
+- **任务 ID 格式**: `generate-flow-{projectId}`
 - **测试结果**: ✅ 正常
 
 ### 2. Code 任务测试
 
-- **任务ID格式**: `generate-code-{projectId}-{pageId}`
+- **任务 ID 格式**: `generate-code-{projectId}-{pageId}`
 - **关键测试用例**: `generate-code-test-1234-page-001`
-- **修复后结果**: 
+- **修复后结果**:
   - ✅ projectId: 'test-1234'（正确）
   - ✅ pageId: 'page-001'（正确）
 - **其他测试用例**: 大部分通过
@@ -37,13 +38,14 @@
 ### 3. 任务持久化测试
 
 - **存储位置**: 任务现在正确存储在对应的项目目录中
-- **文件结构**: 
+- **文件结构**:
   - Flow 任务: `task-flow.json`（单个文件）
   - Code 任务: `task-code.json`（数组文件）
 
 ## 修复验证
 
 通过运行原始测试用例验证修复效果：
+
 - 任务创建和状态管理正常
 - 任务持久化到正确目录
 - 从文件系统正确加载
