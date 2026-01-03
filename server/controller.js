@@ -15,11 +15,6 @@ const path = require('path');
 
 const config = require('./config.js');
 
-const TASK_TYPE = {
-    'generate-flow': 1,
-    'generate-code': 2
-}
-
 const systemEnvironment = replacePlaceholders(`
 系统设计说明:
 模型生成的flow等非代码文件需要写入到{{projectDir}}/{{projectId}}/1/data文件目录下, 模型生成的代码page文件需要写入到{{projectDir}}/{{projectId}}/1/code文件目录下, 模型生成的代码components公共组件需要写入到{{projectDir}}/{{projectId}}/1/components文件目录下。
@@ -43,7 +38,7 @@ async function handleChatCompletions(req, res, data) {
 
     try {
         // 1. 立即创建任务并返回
-        const taskId = `generate-flow_${projectId}`
+        const taskId = `generate-flow-${projectId}`
         // 创建或更新任务
         if (taskManager.getTask(taskId)) {
             taskManager.updateTask(taskId, {
@@ -51,7 +46,7 @@ async function handleChatCompletions(req, res, data) {
                 updatedAt: Date.now()
             });
         } else {
-            taskManager.createTask(taskId, TASK_TYPE['generate-flow']);
+            taskManager.createTask(taskId, 'flow', projectId);
         }
 
 
@@ -83,7 +78,7 @@ async function handleChatCompletions(req, res, data) {
 
 // 异步执行流程图生成
 async function executeFlowGeneration(projectId, prompt) {
-    const taskId = `generate-flow_${projectId}`
+    const taskId = `generate-flow-${projectId}`
     try {
         // 标记任务开始处理
         taskManager.startTask(taskId);
@@ -160,8 +155,8 @@ async function executeFlowGeneration(projectId, prompt) {
 
 // 新增：查询任务状态接口
 function handleTaskStatus(req, res, data) {
-    const { projectId, type } = data;
-    const taskId = `generate-${type}_${projectId}`
+    const { projectId, type, pageId } = data;
+    const taskId = type === 'flow' ? `generate-flow-${projectId}` : `generate-code-${projectId}-${pageId}`
     try {
         const task = taskManager.getTask(taskId);
 
@@ -202,7 +197,7 @@ async function handleGenerateCode(req, res, data) {
 
         if (isSinglePageRegenerate) {
             // 单页面重新生成
-            const taskId = `generate-code_${pageId}`;
+            const taskId = `generate-code-${projectId}-${pageId}`;
             taskIds = [taskId];
             message = `页面 ${pageName} 重新生成任务已创建`;
 
@@ -213,7 +208,7 @@ async function handleGenerateCode(req, res, data) {
                     updatedAt: Date.now()
                 });
             } else {
-                taskManager.createTask(taskId, TASK_TYPE['generate-code']);
+                taskManager.createTask(taskId, 'code', projectId);
             }
 
             // 异步执行单页面生成
@@ -229,19 +224,19 @@ async function handleGenerateCode(req, res, data) {
 
         } else if (pages.length > 0) {
             // 批量生成多个页面
-            taskIds = pages.map(p => `generate-code_${p.pageId}`);
+            taskIds = pages.map(p => `generate-code-${projectId}-${p.pageId}`);
             message = `批量生成 ${pages.length} 个页面任务已创建`;
 
             // 为每个页面创建任务
             pages.forEach(page => {
-                const taskId = `generate-code_${page.pageId}`;
+                const taskId = `generate-code-${projectId}-${page.pageId}`;
                 if (taskManager.getTask(taskId)) {
                     taskManager.updateTask(taskId, {
                         status: 'pending',
                         updatedAt: Date.now()
                     });
                 } else {
-                    taskManager.createTask(taskId, TASK_TYPE['generate-code']);
+                    taskManager.createTask(taskId, 'code', projectId);
                 }
             });
 
@@ -286,7 +281,7 @@ async function executeCodeGeneration(projectId, pages) {
             return {
                 pageId: page.pageId,
                 taskFn: async (signal) => {
-                    const taskId = `generate-code_${page.pageId}`;
+                    const taskId = `generate-code-${projectId}-${page.pageId}`;
 
                     try {
                         // 标记任务开始处理
@@ -336,7 +331,7 @@ async function executeCodeGeneration(projectId, pages) {
  */
 async function executeSinglePageGeneration(projectId, page) {
     const { pageId, pageName, description } = page;
-    const taskId = `generate-code_${pageId}`;
+    const taskId = `generate-code-${projectId}-${pageId}`;
 
     console.log(`\n🔄 重新生成页面: ${pageName} (${pageId})`);
 
