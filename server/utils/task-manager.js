@@ -36,15 +36,43 @@ class TaskManager {
       return { projectId: restPart, taskType: 'flow', pageId: null };
     } else {
       // generate-code-projectId-pageId
-      // 找到最后一个 '-' 的位置来分隔 projectId 和 pageId
-      const lastDashIndex = restPart.lastIndexOf('-');
+      // 修复：使用更可靠的逻辑来分隔projectId和pageId
+      // 基于常见的命名约定，projectId通常在第一个数字序列后结束
 
-      if (lastDashIndex === -1) {
-        throw new Error(`无效的 code taskId 格式: ${taskId}，期望格式: generate-code-projectId-pageId`);
+      // 查找第一个数字序列后的连字符作为分界点
+      // 例如: generate-code-test-1234-page-001
+      // 'test-1234' 是projectId, 'page-001' 是pageId
+
+      // 寻找数字后的第一个连字符
+      let splitIndex = -1;
+      let inNumberSequence = false;
+
+      for (let i = 0; i < restPart.length; i++) {
+        const char = restPart[i];
+
+        if (/[0-9]/.test(char)) {
+          inNumberSequence = true;
+        } else if (char === '-' && inNumberSequence) {
+          // 找到数字序列后的第一个连字符
+          splitIndex = i;
+          break;
+        } else if (/[a-zA-Z]/.test(char)) {
+          // 遇到字母，重置数字序列标记
+          inNumberSequence = false;
+        }
       }
 
-      const projectId = restPart.substring(0, lastDashIndex);
-      const pageId = restPart.substring(lastDashIndex + 1);
+      // 如果没找到合适的分割点，使用第一个连字符
+      if (splitIndex === -1) {
+        const firstDashIndex = restPart.indexOf('-');
+        if (firstDashIndex === -1) {
+          throw new Error(`无效的 code taskId 格式: ${taskId}，期望格式: generate-code-projectId-pageId`);
+        }
+        splitIndex = firstDashIndex;
+      }
+
+      const projectId = restPart.substring(0, splitIndex);
+      const pageId = restPart.substring(splitIndex + 1);
 
       return { projectId, taskType: 'code', pageId };
     }
