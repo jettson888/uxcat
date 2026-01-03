@@ -24,18 +24,18 @@ function _parseTaskId(taskId) {
     // generate-code-projectId-pageId
     // 修复：使用更可靠的逻辑来分隔projectId和pageId
     // 基于常见的命名约定，projectId通常在第一个数字序列后结束
-    
+
     // 查找第一个数字序列后的连字符作为分界点
     // 例如: generate-code-test-1234-page-001
     // 'test-1234' 是projectId, 'page-001' 是pageId
-    
+
     // 寻找数字后的第一个连字符
     let splitIndex = -1;
     let inNumberSequence = false;
-    
+
     for (let i = 0; i < restPart.length; i++) {
       const char = restPart[i];
-      
+
       if (/[0-9]/.test(char)) {
         inNumberSequence = true;
       } else if (char === '-' && inNumberSequence) {
@@ -47,7 +47,7 @@ function _parseTaskId(taskId) {
         inNumberSequence = false;
       }
     }
-    
+
     // 如果没找到合适的分割点，使用第一个连字符
     if (splitIndex === -1) {
       const firstDashIndex = restPart.indexOf('-');
@@ -56,10 +56,10 @@ function _parseTaskId(taskId) {
       }
       splitIndex = firstDashIndex;
     }
-    
+
     const projectId = restPart.substring(0, splitIndex);
     const pageId = restPart.substring(splitIndex + 1);
-    
+
     return { projectId, taskType: 'code', pageId };
   }
 }
