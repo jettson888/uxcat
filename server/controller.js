@@ -536,7 +536,7 @@ async function generateSinglePageWithSteps(projectId, page, signal) {
             }
 
             // 成功
-            await updatePageStatus(projectId, pageId, 'done', result);
+            await updatePageStatus(projectId, pageId, 'done');
             console.log(`✅ 页面生成成功: ${name}`);
 
             const successResult = { success: true, pageId, name, ...result };
