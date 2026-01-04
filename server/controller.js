@@ -387,6 +387,8 @@ async function handleGenerateCode(req, res, data) {
  * 执行代码生成（批量，使用队列管理）
  */
 async function executeCodeGeneration(projectId, pages) {
+    simpleLogger.divider(`开始批量生成 ${pages.length} 个页面 (Project: ${projectId})`);
+    simpleLogger.info('页面列表', pages.map(p => `${p.name} (${p.pageId})`));
     console.log(`\n📦 开始批量生成 ${pages.length} 个页面`);
 
     try {
@@ -395,6 +397,7 @@ async function executeCodeGeneration(projectId, pages) {
                 pageId: page.pageId,
                 taskFn: async (signal) => {
                     const taskId = `generate-code-${projectId}-${page.pageId}`;
+                    simpleLogger.step(`开始生成页面任务: ${page.name}`, { taskId });
 
                     try {
                         // 标记任务开始处理
@@ -406,16 +409,20 @@ async function executeCodeGeneration(projectId, pages) {
                         // 标记任务完成
                         taskManager.completeTask(taskId, result);
 
+                        simpleLogger.info(`页面生成任务完成: ${page.name}`);
                         return { success: true, pageId: page.pageId, ...result };
                     } catch (error) {
                         // 判断是否超时
                         if (error.message.includes('超时') || error.message.includes('timeout')) {
                             taskManager.timeoutTask(taskId);
+                            simpleLogger.error(`页面生成任务超时: ${page.name}`, error);
                         } else if (error.message.includes('取消')) {
                             // 任务被取消，不更新状态（保持 pending）
                             console.log(`⚠️  任务被取消: ${taskId}`);
+                            simpleLogger.warn(`页面生成任务被取消: ${page.name}`);
                         } else {
                             taskManager.failTask(taskId, error);
+                            simpleLogger.error(`页面生成任务失败: ${page.name}`, error);
                         }
                         return { success: false, pageId: page.pageId, error: error.message };
                     }
@@ -432,9 +439,11 @@ async function executeCodeGeneration(projectId, pages) {
         const successCount = results.filter(r => r.status === 'fulfilled' && r.value.success).length;
         const failedCount = results.length - successCount;
 
+        simpleLogger.info(`批量生成完成 Summary`, { successCount, failedCount, total: results.length });
         console.log(`\n✅ 批量生成完成: ${successCount} 成功, ${failedCount} 失败`);
 
     } catch (error) {
+        simpleLogger.error(`项目 ${projectId} 批量生成整体失败`, error);
         console.error(`项目 ${projectId} 批量生成失败:`, error);
     }
 }
@@ -625,8 +634,14 @@ async function generatePageWithStepsInStrict(projectId, page, signal) {
 /**
  * 执行页面生成的三个步骤
  */
+const simpleLogger = require('./utils/simple-logger.js');
+
 async function generatePageWithStepsInLoose(projectId, page, signal) {
     const { pageId, name, description, navigation = [] } = page;
+
+    simpleLogger.divider(`开始生成页面: ${name} (${pageId})`);
+    simpleLogger.info('页面描述', description);
+
     let pageContext = {
         components: [],
         icons: []
@@ -638,39 +653,50 @@ async function generatePageWithStepsInLoose(projectId, page, signal) {
     };
 
     // 步骤1: 调用 LLM 分析需要哪些组件（3分钟超时）
+    simpleLogger.step('步骤1: 分析页面所需组件');
     console.log(`  📝 步骤1: 分析页面所需组件...`);
     try {
         pageContext = await analyzePageContext(page, signal);
         console.log(` 分析页面所需组件:`, pageContext);
         // 如果返回为空或非数组，视为失败/无结果
         if (!Array.isArray(pageContext.components) || pageContext.components.length === 0) {
+            simpleLogger.warn('分析结果组件为空');
             console.log(`  ⚠️ 分析结果为空，跳过组件示例获取`);
             pageContext.components = [];
         } else {
+            simpleLogger.info('需要的组件', pageContext.components);
             console.log(`  ✅ 需要的组件:`, pageContext.components);
         }
     } catch (error) {
+        simpleLogger.error('步骤1分析失败', error);
         console.warn(`  ⚠️ 分析组件失败，跳过组件示例获取: ${error.message}`);
     }
 
     // 步骤2: 调用 knowledge_chat 获取组件示例（批量查询）
     // 场景 B（执行中被取消）：
     if (signal?.aborted) throw new Error('任务被取消');
+
+    simpleLogger.step('步骤2: 查询组件使用示例');
     if (pageContext.components.length > 0) {
         console.log(`  📚 步骤2: 查询组件使用示例...`);
         try {
             pageContextValid.components = await fetchComponentExamples(pageContext.components, signal);
+            simpleLogger.info(`获取到 ${pageContextValid.components.length} 个组件示例`);
             console.log(`  ✅ 获取到 ${pageContextValid.components.length} 个组件示例`);
         } catch (error) {
+            simpleLogger.warn('获取组件示例失败', error);
             console.warn(`  ⚠️ 获取组件示例失败: ${error.message}`);
         }
     } else {
+        simpleLogger.info('无需查询组件示例');
         console.log(`  ⏭️ 跳过步骤2: 无需查询组件示例`);
     }
 
     // 步骤3: 调用 LLM 生成完整代码（3分钟超时）
     if (signal?.aborted) throw new Error('任务被取消');
     pageContextValid.icons = filterHzbValidIcons(pageContext.icons || []);
+
+    simpleLogger.step('步骤3: 生成完整页面代码');
     console.log(`  💻 步骤3: 生成完整页面代码...`);
 
     // 获取结构化的生成结果
@@ -678,9 +704,28 @@ async function generatePageWithStepsInLoose(projectId, page, signal) {
 
     const { code, filePath, verified, verificationResult, toolResults, success } = generationResult;
 
+    // 记录工具调用摘要
+    const toolSummary = toolResults.map(t => {
+        if (t.name === 'vue2_code_verification') {
+            return `验证: ${t.result.success ? '通过' : '失败'}`;
+        }
+        return t.name;
+    });
+    simpleLogger.info('工具调用摘要', toolSummary);
+
     console.log(`  ✅ 代码生成完成，长度: ${code ? code.length : 0}`);
-    if (filePath) console.log(`  📄 文件已写入: ${filePath}`);
-    if (verified) console.log(`  ✨ 代码通过验证`);
+    if (filePath) {
+        simpleLogger.info(`文件已写入: ${filePath}`);
+        console.log(`  📄 文件已写入: ${filePath}`);
+    }
+    if (verified) {
+        simpleLogger.info('代码通过验证');
+        console.log(`  ✨ 代码通过验证`);
+    } else if (verificationResult) {
+        simpleLogger.warn('代码验证失败', verificationResult);
+    } else {
+        simpleLogger.warn('未进行代码验证');
+    }
 
     // 记录工具调用结果到函数日志
     if (toolResults && toolResults.length > 0) {

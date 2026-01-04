@@ -23,7 +23,6 @@ const tools = [
           const clientPath = config.CLIENT_DIR;
           finalPath = path.resolve(clientPath, filePath);
         }
-        console.log('read_file:execute-----', finalPath)
         const content = await fs.readFile(finalPath, 'utf-8');
 
         // 检查是否是 JSON 文件且需要解析
