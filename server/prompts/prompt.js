@@ -28,7 +28,6 @@ const ANALYSIS_SYSTEM_PROMPT = `
 
 ## 数据存储
 并把内容写入到{{projectDir}}/{{projectId}}/1/data/workflow.json文件里。
-scope: projectDir
 `;
 
 // 生成导航提示词
@@ -266,8 +265,12 @@ Web开发高级工程师
 设备类型：
 {{deviceType}}
 
-# 工具调用注意事项:
-list_files和read_file工具scope参数是clientDir, write_file工具scope参数是projectDir, 不要读取node_modules 读取文件不要超过4层。
+# 代码检查
+- 生成完代码必须调用vue2_code_verification工具进行检查，检查完才能把代码写入到磁盘
+
+# 文件写入和读取
+写入: {{projectDir}}/{{projectId}}/1/code/{{pageId}}.vue
+读取: {{clientDir}}
 `;
 
 // 修改样式的提示词

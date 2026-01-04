@@ -2,7 +2,6 @@
 const fs = require('fs-extra');
 const path = require('path');
 const config = require('../config.js');
-const { description } = require('./knowledge-tool.js');
 
 const tools = [
   {
@@ -12,26 +11,19 @@ const tools = [
       type: "object",
       properties: {
         path: { type: "string" },
-        scope: { type: "string", description: '指定文件路径的作用域，可选值有 clientDir 和 projectDir' }
       },
       required: ["path"]
     },
-    async execute({ path: filePath, scope }) {
+    async execute({ path: filePath }) {
       try {
         let finalPath;
         if (path.isAbsolute(filePath)) {
           finalPath = filePath;
         } else {
-          let rootDir = ''
-          if (scope === 'clientDir') {
-            rootDir = config.CLIENT_DIR;
-          }
-          if (scope === 'projectDir') {
-            rootDir = config.PROJECT_DIR;
-          }
-          finalPath = path.join(rootDir, filePath);
+          const clientPath = config.CLIENT_DIR;
+          finalPath = path.resolve(clientPath, filePath);
         }
-
+        console.log('read_file:execute-----', finalPath)
         const content = await fs.readFile(finalPath, 'utf-8');
 
         // 检查是否是 JSON 文件且需要解析
@@ -62,25 +54,18 @@ const tools = [
       type: "object",
       properties: {
         path: { type: "string" },
-        content: { type: ["string", "object"] }, // 支持字符串或对象
-        scope: { type: "string", description: '指定文件路径的作用域，可选值有 clientDir 和 projectDir' }
+        content: { type: ["string", "object"] },
       },
       required: ["path", "content"]
     },
-    async execute({ path: filePath, content, scope }) {
+    async execute({ path: filePath, content }) {
 
       let finalPath;
       if (path.isAbsolute(filePath)) {
         finalPath = filePath;
       } else {
-        let rootDir = ''
-        if (scope === 'clientDir') {
-          rootDir = config.CLIENT_DIR;
-        }
-        if (scope === 'projectDir') {
-          rootDir = config.PROJECT_DIR;
-        }
-        finalPath = path.join(rootDir, filePath);
+        const projectPath = config.PROJECT_DIR;
+        finalPath = path.resolve(projectPath, filePath);
       }
 
       try {
@@ -113,18 +98,13 @@ const tools = [
       properties: {
         dir: { type: "string" },
         recursive: { type: "boolean" },
-        scope: { type: "string", description: '指定文件路径的作用域，可选值有 clientDir 和 projectDir' }
       },
       required: ["dir"]
     },
-    async execute({ dir, scope, recursive = false }) {
-      let rootDir = ''
-      if (scope === 'clientDir') {
-        rootDir = config.CLIENT_DIR;
-      }
-      if (scope === 'projectDir') {
-        rootDir = config.PROJECT_DIR;
-      }
+    async execute({ dir, recursive = false }) {
+
+      const filePath = config.CLIENT_DIR;
+      const rootDir = path.resolve(filePath, dir);
 
       async function getFiles(currentDir) {
         let entries;

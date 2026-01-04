@@ -2,6 +2,7 @@ const flowPrompt = require('./prompts/flow.js');
 const { HZBUI_CODE_PROMPT, CODE_PROMPT } = require('./prompts/code.js');
 const { SYSTEM_PROMPT: HZB_SYSTEM_PROMPT, ANALYSIS_SYSTEM_PROMPT } = require('./prompts/prompt.js');
 const fileTools = require('./tools/file-tools.js');
+const vue2VerificationTool = require('./tools/vue2-verification-tool.js');
 const { getUIDocs } = require('./utils/api.js');
 const { PAGE_ANALYSIS_PROMPT } = require('./prompts/prompt.js');
 const config = require('./config.js');
@@ -20,6 +21,7 @@ const pageQueueManager = require('./utils/page-queue-manager.js');
 const fs = require('fs-extra');
 const path = require('path');
 const { readWorkflowSafely, writeWorkflowSafely } = require('./utils/workflow-file-handler.js');
+const logger = require('./utils/logger.js');
 
 // 简单的文件锁机制，避免并发写入冲突
 const fileLocks = new Map(); // 存储锁的状态
@@ -497,6 +499,13 @@ async function generateSinglePageWithSteps(projectId, page, signal) {
     let retries = 3; // 重试3次
     let lastError = null;
 
+    // 记录函数调用日志
+    logger.logFunctionCall('generateSinglePageWithSteps', {
+        projectId,
+        page,
+        hasSignal: !!signal
+    }, 'executeCodeGeneration/executeSinglePageGeneration', null, [], 'started');
+
     console.log(`\n🚀 开始生成页面: ${name} (${pageId})`);
 
     // 更新页面状态为 generating
@@ -510,13 +519,7 @@ async function generateSinglePageWithSteps(projectId, page, signal) {
             }
 
             // 单个页面生成任务的总超时时间：4分钟
-            let strict = false;
-            let result = {};
-            if (strict) {
-                result = await generatePageWithStepsInStrict(projectId, page, signal)
-            } else {
-                result = await generatePageWithStepsInLoose(projectId, page, signal)
-            }
+            const result = await generatePageWithStepsInLoose(projectId, page, signal)
 
             // 再次检查是否已取消（防止在生成过程中被取消但未抛出错误的情况）
             if (signal?.aborted) {
@@ -526,7 +529,17 @@ async function generateSinglePageWithSteps(projectId, page, signal) {
             // 成功
             await updatePageStatus(projectId, pageId, 'done', result);
             console.log(`✅ 页面生成成功: ${name}`);
-            return { success: true, pageId, name, ...result };
+
+            const successResult = { success: true, pageId, name, ...result };
+
+            // 记录函数调用日志
+            logger.logFunctionCall('generateSinglePageWithSteps', {
+                projectId,
+                page,
+                hasSignal: !!signal
+            }, 'executeCodeGeneration/executeSinglePageGeneration', successResult, [], 'completed');
+
+            return successResult;
 
         } catch (error) {
             console.log('error-------', error.message)
@@ -555,6 +568,19 @@ async function generateSinglePageWithSteps(projectId, page, signal) {
     const status = (lastError.message.includes('超时') || lastError.message.includes('timeout')) ? 'timeout' : 'error';
     await updatePageStatus(projectId, pageId, status, { error: lastError.message });
     console.error(`💥 页面生成最终失败: ${name} - ${lastError.message}`);
+
+    // 记录函数调用日志
+    logger.logFunctionCall('generateSinglePageWithSteps', {
+        projectId,
+        page,
+        hasSignal: !!signal
+    }, 'executeCodeGeneration/executeSinglePageGeneration', {
+        success: false,
+        pageId,
+        name,
+        error: lastError.message
+    }, [], 'failed');
+
     throw lastError; // 抛出错误而不是返回对象
 }
 
@@ -607,7 +633,8 @@ async function generatePageWithStepsInLoose(projectId, page, signal) {
     };
     let pageContextValid = {
         components: [], // rag 查询使用事项
-        icons: [] // 检验生成的icons 是否符合 项目里罗列的icons
+        icons: [], // 检验生成的icons 是否符合 项目里罗列的icons
+        projectId,
     };
 
     // 步骤1: 调用 LLM 分析需要哪些组件（3分钟超时）
@@ -645,26 +672,36 @@ async function generatePageWithStepsInLoose(projectId, page, signal) {
     if (signal?.aborted) throw new Error('任务被取消');
     pageContextValid.icons = filterHzbValidIcons(pageContext.icons || []);
     console.log(`  💻 步骤3: 生成完整页面代码...`);
-    const code = await generatePageCode(page, pageContextValid, signal);
-    console.log(`  ✅ 代码生成完成，长度: ${code.length}`);
 
-    // 步骤4: ESLint 检查
-    if (signal?.aborted) throw new Error('任务被取消');
-    console.log(`  🔍 步骤4: ESLint 检查...`);
-    console.log('code---', code)
-    const lintResult = await checkVueCode(code);
-    if (!lintResult.valid) {
-        throw new Error(`ESLint 检查失败: ${lintResult.errors.join(', ')}`);
+    // 获取结构化的生成结果
+    const generationResult = await generatePageCode(page, pageContextValid, signal);
+
+    const { code, filePath, verified, verificationResult, toolResults, success } = generationResult;
+
+    console.log(`  ✅ 代码生成完成，长度: ${code ? code.length : 0}`);
+    if (filePath) console.log(`  📄 文件已写入: ${filePath}`);
+    if (verified) console.log(`  ✨ 代码通过验证`);
+
+    // 记录工具调用结果到函数日志
+    if (toolResults && toolResults.length > 0) {
+        console.log(`  🛠️  工具调用详情:`, toolResults.map(t => `${t.name}`));
     }
-    console.log(`  ✅ ESLint 检查通过`);
 
-    // 步骤5: 写入磁盘
-    if (signal?.aborted) throw new Error('任务被取消');
-    console.log(`  💾 步骤5: 写入文件...`);
-    const filePath = await savePageToFile(projectId, pageId, code);
-    console.log(`  ✅ 文件写入成功: ${filePath}`);
+    // 构造返回结果
+    // 如果生成失败（比如 write_file 没成功），这里可能会没有 code
+    if (!success || !code) {
+        throw new Error(`代码生成失败: ${generationResult.error || '未生成有效代码'}`);
+    }
 
-    return { filePath, codeLength: code.length };
+    // 返回丰富的结果
+    return {
+        code,
+        codeLength: code.length,
+        filePath,
+        verified,
+        verificationResult,
+        toolResults
+    };
 }
 
 /**
@@ -755,6 +792,15 @@ async function fetchComponentExamples(components, signal) {
 
 /**
  * 步骤3: 生成完整页面代码
+ * 返回结构化结果：
+ * {
+ *   success: boolean,
+ *   code: string,
+ *   filePath: string,
+ *   verified: boolean,
+ *   verificationResult: object,
+ *   toolResults: array
+ * }
  */
 async function generatePageCode(page, context, signal) {
     const { name, description, navigationList = [] } = page;
@@ -771,13 +817,17 @@ async function generatePageCode(page, context, signal) {
         projectDirs: '', // TODO: 从配置读取
         publicComponents: '', // TODO: 从配置读取
         deviceType: 'PC',
+        pageId: page.pageId,
+        projectId: context.projectId,
+        projectDir: config.PROJECT_DIR,
+        clientDir: config.CLIENT_DIR,
     });
 
     const messages = [
         { role: 'user', content: prompt }
     ];
 
-    const availableTools = fileTools
+    const availableTools = [...fileTools, vue2VerificationTool]
         .map(t => {
             return {
                 type: "function",
@@ -811,22 +861,77 @@ async function generatePageCode(page, context, signal) {
         return await handleToolCalls(options);
     }
 
-    const response = await task();
-    console.log('response.choices---', response)
-    if (response.content) {
-        const code = response.content
-
-        // 清理 Markdown 代码块标记
-        code = code.replace(/```vue\n?/g, '').replace(/```\n?$/g, '').trim();
-
-        if (!code || code.length < 100) {
-            throw new Error('生成的代码为空或过短');
-        }
-
-        return code;
-    } else {
-        return ''
+    try {
+        await task();
+    } catch (error) {
+        console.warn('generatePageCode task execution warning:', error.message);
+        // 即使任务抛错（如循环超限），我们仍尝试从历史消息中提取结果
     }
+
+    // 从消息历史中提取最终状态
+    let lastCode = '';
+    let lastFilePath = '';
+    let isVerified = false;
+    let verificationResult = null;
+    let toolResults = [];
+
+    // 遍历消息历史寻找工具调用结果
+    for (const msg of messages) {
+        if (msg.role === 'tool') {
+            try {
+                const content = JSON.parse(msg.content);
+
+                // 收集所有工具结果
+                toolResults.push({
+                    name: msg.name,
+                    result: content
+                });
+
+                // 2. 检查是否有成功的写入操作
+                if (msg.name === 'write_file' && content.success) {
+                    // 记录最后一次成功的写入
+                    // write_file 的 content 可能是简单的 success 消息，我们需要从对应的 tool_calls 参数中找代码
+                    // 但这里 tools.js 的 executeTool 返回的是 result
+                    // 实际上我们需要找对应的 tool_call 参数来获取 content/code
+                    // 让我们稍微回溯一下找到这个 tool_call
+                    const assistantMsg = messages.find(m =>
+                        m.tool_calls && m.tool_calls.some(tc => tc.id === msg.tool_call_id)
+                    );
+
+                    if (assistantMsg) {
+                        const toolCall = assistantMsg.tool_calls.find(tc => tc.id === msg.tool_call_id);
+                        if (toolCall) {
+                            const args = JSON.parse(toolCall.function.arguments);
+                            // 优先使用 content (write_file), 如果没有则可能是其他参数? 
+                            // file-tools.js 中 write_file 参数是 { path, content, ... }
+                            if (args.content) {
+                                lastCode = args.content;
+                                lastFilePath = args.path;
+                            }
+                        }
+                    }
+                }
+
+                // 3. 检查代码验证结果
+                if (msg.name === 'vue2_code_verification') {
+                    verificationResult = content;
+                    isVerified = content.success;
+                }
+
+            } catch (e) {
+                console.warn('解析工具结果失败:', e);
+            }
+        }
+    }
+
+    return {
+        success: !!lastCode, // 只要生成了代码就算初步成功
+        code: lastCode,
+        filePath: lastFilePath,
+        verified: isVerified,
+        verificationResult,
+        toolResults
+    };
 }
 
 /**
@@ -846,9 +951,15 @@ async function savePageToFile(projectId, pageId, code) {
     // 原子性地替换原文件
     await fs.move(tempPath, filePath, { overwrite: true });
 
-    // TODO: 同步到 client 目录（实时渲染）
-    // const clientPath = path.join(config.CLIENT_DIR, 'src', 'views', 'dynamic', fileName);
-    // await fs.copy(filePath, clientPath);
+    // 同步到 client 目录（实时渲染）
+    try {
+        const clientPath = path.join(config.CLIENT_DIR, 'src', 'views', 'dynamic', fileName);
+        await fs.copy(filePath, clientPath);
+        console.log(`  📁 同步到客户端: ${clientPath}`);
+    } catch (error) {
+        console.error(`  ❌ 同步到客户端失败:`, error.message);
+        // 不抛出错误，因为项目目录已保存成功
+    }
 
     return filePath;
 }

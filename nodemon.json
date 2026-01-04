@@ -1,0 +1,13 @@
+{
+  "watch": ["server/"],
+  "ignore": [
+    "logs/*",
+    "*.log",
+    ".test/*",
+    "node_modules/",
+    ".git/",
+    "client/",
+    "skeleton/"
+  ],
+  "ext": "js,json"
+}

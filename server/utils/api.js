@@ -19,7 +19,6 @@ async function callChatCompletion(params) {
     timeout,
     headers: defaultHeaders,
   }
-  console.log('params----', params)
   try {
     if (tools) body.tools = tools;
     if (signal) options.signal = signal;

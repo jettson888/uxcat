@@ -1,7 +1,16 @@
 const fileTools = require('../tools/file-tools.js');
 const knowledgeTool = require('../tools/knowledge-tool.js');
+const vue2VerificationTool = require('../tools/vue2-verification-tool.js');
 
-const allTools = [...fileTools, knowledgeTool];
+// 尝试导入logger，如果失败则使用空对象
+let logger = null;
+try {
+    logger = require('../utils/logger.js');
+} catch (e) {
+    console.warn('Logger not available, proceeding without detailed logging');
+}
+
+const allTools = [...fileTools, knowledgeTool, vue2VerificationTool];
 
 /**
  * 解析模型生成的数据，自动判断格式并处理
@@ -116,7 +125,14 @@ async function executeTool(toolCall, signal) {
     console.log('args----', args)
     // executeToolStrategyToParams(args); 
 
-    return await tool.execute(args);
+    const result = await tool.execute(args);
+
+    // 记录工具调用结果
+    if (logger) {
+        logger.logToolCall(name, args, result, 'executeTool');
+    }
+
+    return result;
 }
 
 // 处理工具调用循环

@@ -88,7 +88,9 @@ Web开发高级工程师
 设备类型：
 {{deviceType}}。
 
-如果需要查询某个 <hzb-ui> 组件的具体用法，请先调用工具 "knowledge_chat"。
+# 文件写入和读取
+写入: {{projectDir}}/{{projectId}}/1/code/{{pageId}}.vue
+读取: {{clientDir}}
 `
 
 const CODE_PROMPT = `
@@ -179,8 +181,12 @@ Web开发高级工程师
 设备类型：
 {{deviceType}}。
 
-# 工具调用注意事项:
-list_files和read_file工具scope参数是clientDir, write_file工具scope参数是projectDir, 不要读取node_modules 读取文件不要超过4层。
+# 代码检查
+- 生成完代码必须调用vue2_code_verification工具进行检查，检查完才能把代码写入到磁盘
+
+# 文件写入和读取
+写入: {{projectDir}}/{{projectId}}/1/code/{{pageId}}.vue
+读取: {{clientDir}}
 `
 module.exports = {
   HZBUI_CODE_PROMPT,
