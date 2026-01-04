@@ -179,7 +179,8 @@ Web开发高级工程师
 设备类型：
 {{deviceType}}。
 
-如果需要查询某个 <hzb-ui> 组件的具体用法，请先调用工具 "knowledge_chat"。
+# 工具调用注意事项:
+list_files和read_file工具scope参数是clientDir, write_file工具scope参数是projectDir, 不要读取node_modules 读取文件不要超过4层。
 `
 module.exports = {
   HZBUI_CODE_PROMPT,

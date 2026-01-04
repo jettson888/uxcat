@@ -104,7 +104,8 @@ class TaskManager {
    * @param {number} taskType - 任务类型常量（已弃用，自动从 taskId 解析）
    * @param {string} projectId - 项目ID（可选，会自动从 taskId 解析）
    */
-  createTask(taskId, taskType = '', projectId = null) {
+  createTask(taskId, taskType = '', options) {
+    const { projectId = '' } = options
     const parsed = this._parseTaskId(taskId);
     const actualProjectId = projectId || parsed.projectId;
     const actualTaskType = taskType || parsed.taskType;

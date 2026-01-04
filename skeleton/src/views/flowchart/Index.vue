@@ -1321,6 +1321,10 @@ const fetchTaskStatus = async ()=>{
     }
     if (task.status === "completed") {
       fetchWorkflowDetail()
+         showEmptyBtn.value = false;
+    } else {
+      showEmptyBtn.value = true;
+      prompt.value = task.prompt;
     }
   } catch (error) {
     

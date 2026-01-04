@@ -1,6 +1,13 @@
 const flowPrompt = require('./prompts/flow.js');
 const { HZBUI_CODE_PROMPT, CODE_PROMPT } = require('./prompts/code.js');
+const { SYSTEM_PROMPT: HZB_SYSTEM_PROMPT, ANALYSIS_SYSTEM_PROMPT } = require('./prompts/prompt.js');
 const fileTools = require('./tools/file-tools.js');
+const { getUIDocs } = require('./utils/api.js');
+const { PAGE_ANALYSIS_PROMPT } = require('./prompts/prompt.js');
+const config = require('./config.js');
+const { HZB_ICONS } = require('./prompts/icons.js');
+const { COMPONENTS } = require('./prompts/components.js');
+const { filterHzbValidIcons } = require('./utils/icons.js');
 const knowledgeTool = require('./tools/knowledge-tool.js');
 const { checkVueCode } = require('./utils/eslint-checker.js');
 const { getLintConfigs } = require('./utils/lint-config.js');
@@ -55,7 +62,6 @@ function releaseFileLock(filePath) {
     }
 }
 
-const config = require('./config.js');
 
 const systemEnvironment = replacePlaceholders(`
 系统设计说明:
@@ -84,12 +90,17 @@ async function handleChatCompletions(req, res, data) {
         let task = null
         // 创建或更新任务
         if (taskManager.getTask(taskId)) {
-            taskManager.updateTask(taskId, {
+            task = taskManager.updateTask(taskId, {
                 status: 'pending',
+                error: "",
+                result: "",
                 updatedAt: Date.now()
             });
         } else {
-            task = taskManager.createTask(taskId, 'flow', projectId);
+            task = taskManager.createTask(taskId, 'flow', {
+                projectId,
+                prompt
+            });
         }
 
 
@@ -126,7 +137,7 @@ async function executeFlowGeneration(projectId, prompt) {
         // 标记任务开始处理
         taskManager.startTask(taskId);
 
-        const systemPrompt = replacePlaceholders(`请根据以上需求生成完整的流程JSON，直接返回JSON内容，**不要**返回Markdown代码块，并把内容写入 {{projectDir}}/{{projectId}}/1/data/workflow.json文件。`, {
+        const systemPrompt = replacePlaceholders(ANALYSIS_SYSTEM_PROMPT, {
             projectDir: config.PROJECT_DIR,
             projectId: projectId
         });
@@ -167,7 +178,7 @@ async function executeFlowGeneration(projectId, prompt) {
                         tools,
                         model: 'qwen-coder',
                         signal,
-                        timeout: 60000
+                        timeout: 120000  // 2min
                     });
                 },
                 maxIterations: 10,
@@ -177,7 +188,7 @@ async function executeFlowGeneration(projectId, prompt) {
         }
 
         // 重试3次, 2分钟超时
-        const result = await callWithTimeoutAndRetry(task, 3, 120000);
+        const result = await callWithTimeoutAndRetry(task, 3, 180000);
 
         // 任务完成
         taskManager.completeTask(taskId, {
@@ -292,12 +303,17 @@ async function handleGenerateCode(req, res, data) {
 
             // 创建或更新任务
             if (taskManager.getTask(taskId)) {
-                taskManager.updateTask(taskId, {
+                const task = taskManager.updateTask(taskId, {
                     status: 'pending',
+                    error: "",
+                    result: "",
                     updatedAt: Date.now()
                 });
+                tasks.push(task)
             } else {
-                const task = taskManager.createTask(taskId, 'code', projectId);
+                const task = taskManager.createTask(taskId, 'code', {
+                    projectId
+                });
                 tasks.push(task)
             }
 
@@ -322,10 +338,14 @@ async function handleGenerateCode(req, res, data) {
                 if (taskManager.getTask(taskId)) {
                     taskManager.updateTask(taskId, {
                         status: 'pending',
+                        error: "",
+                        result: "",
                         updatedAt: Date.now()
                     });
                 } else {
-                    const task = taskManager.createTask(taskId, 'code', projectId);
+                    const task = taskManager.createTask(taskId, 'code', {
+                        projectId
+                    });
                     tasks.push(task)
                 }
             });
@@ -564,7 +584,7 @@ async function generatePageWithStepsInStrict(projectId, page, signal) {
     console.log(`  🔍 步骤4: ESLint 检查...`);
     const lintResult = await checkVueCode(code);
     if (!lintResult.valid) {
-        throw new Error(`ESLint 检查失败: ${lintResult.errors.join(', ')}`);
+        throw new Error(`ESLint 检查失败: ${lintResult.errors?.join(', ')}`);
     }
     console.log(`  ✅ ESLint 检查通过`);
 
@@ -581,36 +601,41 @@ async function generatePageWithStepsInStrict(projectId, page, signal) {
  */
 async function generatePageWithStepsInLoose(projectId, page, signal) {
     const { pageId, name, description, navigation = [] } = page;
-    let componentsNeeded = [];
-    let componentExamples = [];
+    let pageContext = {
+        components: [],
+        icons: []
+    };
+    let pageContextValid = {
+        components: [], // rag 查询使用事项
+        icons: [] // 检验生成的icons 是否符合 项目里罗列的icons
+    };
 
     // 步骤1: 调用 LLM 分析需要哪些组件（3分钟超时）
     console.log(`  📝 步骤1: 分析页面所需组件...`);
     try {
-        componentsNeeded = await analyzeRequiredComponents(page, signal);
+        pageContext = await analyzePageContext(page, signal);
+        console.log(` 分析页面所需组件:`, pageContext);
         // 如果返回为空或非数组，视为失败/无结果
-        if (!Array.isArray(componentsNeeded) || componentsNeeded.length === 0) {
+        if (!Array.isArray(pageContext.components) || pageContext.components.length === 0) {
             console.log(`  ⚠️ 分析结果为空，跳过组件示例获取`);
-            componentsNeeded = [];
+            pageContext.components = [];
         } else {
-            console.log(`  ✅ 需要的组件:`, componentsNeeded);
+            console.log(`  ✅ 需要的组件:`, pageContext.components);
         }
     } catch (error) {
         console.warn(`  ⚠️ 分析组件失败，跳过组件示例获取: ${error.message}`);
-        componentsNeeded = [];
     }
 
     // 步骤2: 调用 knowledge_chat 获取组件示例（批量查询）
     // 场景 B（执行中被取消）：
     if (signal?.aborted) throw new Error('任务被取消');
-    if (componentsNeeded.length > 0) {
+    if (pageContext.components.length > 0) {
         console.log(`  📚 步骤2: 查询组件使用示例...`);
         try {
-            componentExamples = await fetchComponentExamples(componentsNeeded, signal);
-            console.log(`  ✅ 获取到 ${componentExamples.length} 个组件示例`);
+            pageContextValid.components = await fetchComponentExamples(pageContext.components, signal);
+            console.log(`  ✅ 获取到 ${pageContextValid.components.length} 个组件示例`);
         } catch (error) {
             console.warn(`  ⚠️ 获取组件示例失败: ${error.message}`);
-            componentExamples = [];
         }
     } else {
         console.log(`  ⏭️ 跳过步骤2: 无需查询组件示例`);
@@ -618,13 +643,15 @@ async function generatePageWithStepsInLoose(projectId, page, signal) {
 
     // 步骤3: 调用 LLM 生成完整代码（3分钟超时）
     if (signal?.aborted) throw new Error('任务被取消');
+    pageContextValid.icons = filterHzbValidIcons(pageContext.icons || []);
     console.log(`  💻 步骤3: 生成完整页面代码...`);
-    const code = await generatePageCode(page, componentExamples, signal);
+    const code = await generatePageCode(page, pageContextValid, signal);
     console.log(`  ✅ 代码生成完成，长度: ${code.length}`);
 
     // 步骤4: ESLint 检查
     if (signal?.aborted) throw new Error('任务被取消');
     console.log(`  🔍 步骤4: ESLint 检查...`);
+    console.log('code---', code)
     const lintResult = await checkVueCode(code);
     if (!lintResult.valid) {
         throw new Error(`ESLint 检查失败: ${lintResult.errors.join(', ')}`);
@@ -674,26 +701,53 @@ async function analyzeRequiredComponents(page, signal) {
 }
 
 /**
+ * 优化：步骤1 分析页面需要的上下文
+ * icons
+ * components
+ */
+
+async function analyzePageContext(page, signal) {
+    return new Promise(async (resolve, reject) => {
+        const prompt = replacePlaceholders(PAGE_ANALYSIS_PROMPT, {
+            icons: HZB_ICONS.join("\n"),
+            components: COMPONENTS.join("\n"),
+            pageName: page.name,
+            pageDesc: page.description,
+            pageNavigation: JSON.stringify(page.navigationList || []),
+            deviceType: ''
+        });
+        const messages = [{ role: "user", content: prompt }]
+        try {
+            const content = await callChatCompletion({
+                messages,
+                signal,
+                model: 'qwen-coder',
+                timeout: 120000 // 30000 == 30s,  2min = 120000
+            });
+            const parsedContent = JSON.parse(content.trim().replace(/^```\s*(json)?|```\s*$/g, ""));
+            resolve(parsedContent);
+        } catch (error) {
+            reject(error);
+        }
+    });
+}
+
+/**
  * 步骤2: 获取组件使用示例
  */
 async function fetchComponentExamples(components, signal) {
     if (!components || components.length === 0) {
         return [];
     }
-
-    const examples = [];
-    for (const componentName of components) {
-        try {
-            if (signal?.aborted) {
-                throw new Error('任务被取消');
-            }
-
-            const result = await knowledgeTool.execute({ query: `${componentName} 组件使用示例` });
-            examples.push({ component: componentName, example: result });
-        } catch (error) {
-            console.warn(`  ⚠️  获取组件 ${componentName} 示例失败:`, error.message);
-            // 不阻断流程，继续下一个
+    let examples = []
+    try {
+        if (signal?.aborted) {
+            throw new Error('任务被取消');
         }
+        examples = await getUIDocs(components);
+    } catch (error) {
+        console.warn(`  ⚠️  获取组件 components 示例失败:`, error.message);
+        // 不阻断流程，继续下一个
     }
 
     return examples;
@@ -702,30 +756,21 @@ async function fetchComponentExamples(components, signal) {
 /**
  * 步骤3: 生成完整页面代码
  */
-async function generatePageCode(page, componentExamples, signal) {
-    const { name, description, navigation = [] } = page;
+async function generatePageCode(page, context, signal) {
+    const { name, description, navigationList = [] } = page;
 
-    // 组装组件示例文本
-    let componentsText = '';
-    if (Array.isArray(componentExamples) && componentExamples.length > 0) {
-        const examplesText = componentExamples
-            .map(e => `## ${e.component}\n${e.example}`)
-            .join('\n\n');
-        // 只有在有示例时才添加 <hzb-ui> 标签
-        componentsText = `<hzb-ui>\n${examplesText}\n</hzb-ui>`;
-    }
-
+    console.log('generatePageCode:context----', context)
     // 使用代码模板
-    const codePromptTemplate = componentExamples.length > 0 ? HZBUI_CODE_PROMPT : CODE_PROMPT;
+    const codePromptTemplate = context.components.length > 0 ? HZB_SYSTEM_PROMPT : CODE_PROMPT;
     const prompt = replacePlaceholders(codePromptTemplate, {
         pageName: name,
         pageDesc: description,
-        pageNavigation: JSON.stringify(navigation, null, 2),
-        components: componentsText,
-        icons: '[]', // TODO: 从配置读取
-        projectDirs: '[]', // TODO: 从配置读取
-        publicComponents: '[]', // TODO: 从配置读取
-        deviceType: 'PC'
+        pageNavigation: JSON.stringify(navigationList, null, 2),
+        components: context.components,
+        icons: context.icons, // TODO: 从配置读取
+        projectDirs: '', // TODO: 从配置读取
+        publicComponents: '', // TODO: 从配置读取
+        deviceType: 'PC',
     });
 
     const messages = [
@@ -733,7 +778,6 @@ async function generatePageCode(page, componentExamples, signal) {
     ];
 
     const availableTools = fileTools
-        .filter(t => t.name === 'write_file')
         .map(t => {
             return {
                 type: "function",
@@ -758,27 +802,31 @@ async function generatePageCode(page, componentExamples, signal) {
                     tools,
                     signal,
                     model: 'qwen-coder',
-                    timeout: 10000
+                    timeout: 120000
                 });
             },
             maxIterations: 10,
-            earlyExit: true  // ✅ 启用早期退出：工具执行成功后不再调用模型
+            earlyExit: false  // ✅ 启用早期退出：工具执行成功后不再调用模型
         }
         return await handleToolCalls(options);
     }
 
     const response = await task();
+    console.log('response.choices---', response)
+    if (response.content) {
+        const code = response.content
 
-    let code = response.content || '';
+        // 清理 Markdown 代码块标记
+        code = code.replace(/```vue\n?/g, '').replace(/```\n?$/g, '').trim();
 
-    // 清理 Markdown 代码块标记
-    code = code.replace(/```vue\n?/g, '').replace(/```\n?$/g, '').trim();
+        if (!code || code.length < 100) {
+            throw new Error('生成的代码为空或过短');
+        }
 
-    if (!code || code.length < 100) {
-        throw new Error('生成的代码为空或过短');
+        return code;
+    } else {
+        return ''
     }
-
-    return code;
 }
 
 /**

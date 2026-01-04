@@ -4,7 +4,7 @@ const config = require('../config.js')
 const CHAT_GPT_API = `${config.LLM_HOST}/v1/chat/completions`;
 
 async function callChatCompletion(params) {
-  const { messages, tools = null, model = "mistralai/devstral-2512:free", timeout = 60000, signal, headers } = params;
+  const { messages, tools = null, model = "mistralai/devstral-2512:free", timeout = 120000, signal, headers } = params;
 
   const body = {
     model,
@@ -53,4 +53,46 @@ async function callChatCompletion(params) {
   }
 
 }
-module.exports = { callChatCompletion };
+
+/**
+ * 从RAG接口获取UI组件文档
+ * @param {Array} list - 组件列表
+ * @returns {Promise<string>} 组件文档内容
+ */
+async function getUIDocs(list) {
+  const docs = [];
+  // 必须带上图标组件的使用信息查询，防止模型乱用
+  if (!list.find((d) => d.name?.toLowerCase() === "icon")) {
+    list.push({ name: "Icon", keywords: "使用方法" });
+  }
+  for (const item of list) {
+    const fileName =
+      item.name
+        .replace(/([A-Z])/g, "-$1")
+        .toLowerCase()
+        .replace(/^-/, "") + ".md";
+    try {
+      const response = await axios.post(config.UI_DOCS_CONFIG.REQUEST_URL, {
+        input: {
+          knowledgeId: config.UI_DOCS_CONFIG.KNOWLEDGE_ID,
+          query: item.keywords + " 基础用法",
+          retrieval_setting: config.UI_DOCS_CONFIG.RETRIEVAL_SETTING,
+          metadata_filter_params: {
+            title: [fileName],
+          },
+          channelCode: config.UI_DOCS_CONFIG.CHANNEL_CODE,
+          sceneCode: config.UI_DOCS_CONFIG.SCENE_CODE,
+        },
+      });
+
+      const result = await response.data;
+      const content = result.output?.response || "无";
+      docs.push(`${item.name}.md\n${content}`);
+    } catch (error) {
+      console.error(`获取组件${item.name}文档失败:`, error);
+      docs.push(`${item.name}.md\n获取文档失败`);
+    }
+  }
+  return docs.join("\n\n");
+}
+module.exports = { callChatCompletion, getUIDocs };
