@@ -273,12 +273,12 @@ function handleTaskStatus(req, res, data) {
 }
 
 async function handleGenerateCode(req, res, data) {
-    const { projectId, checkedNodes = [], pages = [], pageId = "", pageName = "", description = "" } = data
+    const { projectId, checkedNodes = [], pages = [], pageId = "", name = "", description = "" } = data
 
     const selectedPages = checkedNodes ? checkedNodes : pages;
     try {
         // 判断是批量生成还是单页面重新生成
-        const isSinglePageRegenerate = !selectedPages.length && pageId && pageName && description;
+        const isSinglePageRegenerate = !selectedPages.length && pageId && name && description;
 
         let taskIds = [];
         let tasks = [];
@@ -288,7 +288,7 @@ async function handleGenerateCode(req, res, data) {
             // 单页面重新生成
             const taskId = `generate-code-${projectId}-${pageId}`;
             taskIds = [taskId];
-            message = `页面 ${pageName} 重新生成任务已创建`;
+            message = `页面 ${name} 重新生成任务已创建`;
 
             // 创建或更新任务
             if (taskManager.getTask(taskId)) {
@@ -305,7 +305,7 @@ async function handleGenerateCode(req, res, data) {
             setImmediate(() => {
                 executeSinglePageGeneration(projectId, {
                     pageId,
-                    pageName,
+                    name,
                     description
                 }).catch(error => {
                     console.error(`页面 ${pageId} 生成失败:`, error);
@@ -339,7 +339,7 @@ async function handleGenerateCode(req, res, data) {
 
         } else {
             // 参数错误
-            throw new Error('请提供 pages 数组或单个页面信息（pageId, pageName, description）');
+            throw new Error('请提供 pages 数组或单个页面信息（pageId, name, description）');
         }
 
         res.writeHead(200, { "Content-Type": "application/json" });
@@ -421,10 +421,10 @@ async function executeCodeGeneration(projectId, pages) {
  * 执行单页面生成（重新生成）
  */
 async function executeSinglePageGeneration(projectId, page) {
-    const { pageId, pageName, description } = page;
+    const { pageId, name, description } = page;
     const taskId = `generate-code-${projectId}-${pageId}`;
 
-    console.log(`\n🔄 重新生成页面: ${pageName} (${pageId})`);
+    console.log(`\n🔄 重新生成页面: ${name} (${pageId})`);
 
     try {
         // 添加到队列（会自动取消该页面的旧任务）
@@ -454,11 +454,11 @@ async function executeSinglePageGeneration(projectId, page) {
             }
         });
 
-        console.log(`✅ 页面重新生成成功: ${pageName}`);
+        console.log(`✅ 页面重新生成成功: ${name}`);
 
     } catch (error) {
         if (!error.message.includes('取消')) {
-            console.error(`页面重新生成失败: ${pageName}`, error);
+            console.error(`页面重新生成失败: ${name}`, error);
         }
     }
 }
@@ -506,7 +506,7 @@ async function generateSinglePageWithSteps(projectId, page, signal) {
             // 成功
             await updatePageStatus(projectId, pageId, 'done', result);
             console.log(`✅ 页面生成成功: ${name}`);
-            return { success: true, pageId, pageName: name, ...result };
+            return { success: true, pageId, name, ...result };
 
         } catch (error) {
             console.log('error-------', error.message)
@@ -646,7 +646,7 @@ async function generatePageWithStepsInLoose(projectId, page, signal) {
 async function analyzeRequiredComponents(page, signal) {
     const prompt = `请分析以下页面需求，列出需要使用的 <hzb-ui> 组件名称（只需要组件名，用逗号分隔）：
 
-页面名称：${page.pageName}
+页面名称：${page.name}
 页面描述：${page.description}
 
 请直接返回组件名称列表，例如：Button, Table, Form, Input`;
@@ -659,7 +659,7 @@ async function analyzeRequiredComponents(page, signal) {
         messages,
         signal,
         model: 'qwen-coder',
-        timeout: 120000 // 2分钟
+        timeout: 10000 // 30000 == 30s,  2min = 120000
     });
 
     // 解析组件列表
@@ -703,7 +703,7 @@ async function fetchComponentExamples(components, signal) {
  * 步骤3: 生成完整页面代码
  */
 async function generatePageCode(page, componentExamples, signal) {
-    const { pageName, description, navigation = [] } = page;
+    const { name, description, navigation = [] } = page;
 
     // 组装组件示例文本
     let componentsText = '';
@@ -718,7 +718,7 @@ async function generatePageCode(page, componentExamples, signal) {
     // 使用代码模板
     const codePromptTemplate = componentExamples.length > 0 ? HZBUI_CODE_PROMPT : CODE_PROMPT;
     const prompt = replacePlaceholders(codePromptTemplate, {
-        pageName,
+        pageName: name,
         pageDesc: description,
         pageNavigation: JSON.stringify(navigation, null, 2),
         components: componentsText,
@@ -758,7 +758,7 @@ async function generatePageCode(page, componentExamples, signal) {
                     tools,
                     signal,
                     model: 'qwen-coder',
-                    timeout: 120000
+                    timeout: 10000
                 });
             },
             maxIterations: 10,
