@@ -509,6 +509,7 @@ async function generateSinglePageWithSteps(projectId, page, signal) {
             return { success: true, pageId, pageName: name, ...result };
 
         } catch (error) {
+            console.log('error-------', error.message)
             // 如果是取消错误，直接抛出不重试
             if (error.message.includes('取消') || signal?.aborted) {
                 await updatePageStatus(projectId, pageId, 'pending'); // 恢复为待生成
@@ -845,14 +846,41 @@ async function updatePageStatus(projectId, pageId, status, extraData = {}) {
         // 使用文件锁避免并发写入冲突
         const releaseLock = await acquireFileLock(workflowPath);
         try {
-            // 使用临时文件和原子操作来避免文件损坏
-            const tempPath = workflowPath + '.tmp';
-            await fs.writeJson(tempPath, workflow, { spaces: 2 });
+            // 在获取锁之后，重新读取最新的文件内容以避免状态覆盖
+            const latestWorkflow = await readWorkflowSafely(projectId);
+            if (latestWorkflow && latestWorkflow.pages && Array.isArray(latestWorkflow.pages)) {
+                const latestPageIndex = latestWorkflow.pages.findIndex(p => p.pageId === pageId);
+                if (latestPageIndex !== -1) {
+                    // 更新最新文件中的页面状态
+                    const previousStatus = latestWorkflow.pages[latestPageIndex].status;
+                    latestWorkflow.pages[latestPageIndex].status = status;
+                    latestWorkflow.pages[latestPageIndex].updatedAt = Date.now();
+                    Object.assign(latestWorkflow.pages[latestPageIndex], extraData);
 
-            // 原子性地替换原文件
-            await fs.move(tempPath, workflowPath, { overwrite: true });
+                    console.log(`  📝 页面 ${pageId} 状态从 ${previousStatus} 更新为 ${status} (使用最新文件)`);
 
-            console.log(`  📝 已更新页面状态: ${pageId} -> ${status}`);
+                    // 使用临时文件和原子操作来避免文件损坏
+                    const tempPath = workflowPath + '.tmp';
+                    await fs.writeJson(tempPath, latestWorkflow, { spaces: 2 });
+
+                    // 原子性地替换原文件
+                    await fs.move(tempPath, workflowPath, { overwrite: true });
+
+                    console.log(`  📝 已更新页面状态: ${pageId} -> ${status}`);
+                } else {
+                    console.warn(`页面 ${pageId} 在最新workflow中不存在`);
+                }
+            } else {
+                console.warn('无法获取最新的workflow数据，使用原始数据');
+                // 退回到原始逻辑
+                const tempPath = workflowPath + '.tmp';
+                await fs.writeJson(tempPath, workflow, { spaces: 2 });
+
+                // 原子性地替换原文件
+                await fs.move(tempPath, workflowPath, { overwrite: true });
+
+                console.log(`  📝 已更新页面状态: ${pageId} -> ${status}`);
+            }
         } finally {
             // 释放锁
             releaseLock();
