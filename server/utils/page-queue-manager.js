@@ -1,5 +1,4 @@
 // server/utils/page-queue-manager.js
-const { default: PQueue } = require('p-queue');
 
 /**
  * 页面生成队列管理器
@@ -10,8 +9,13 @@ const { default: PQueue } = require('p-queue');
  */
 class PageQueueManager {
   constructor(concurrency = 3) {
-    this.queue = new PQueue({ concurrency });
+    this._initQueue(concurrency)
     this.runningTasks = new Map(); // pageId -> { abortController, promise }
+  }
+
+  async _initQueue(concurrency) {
+    const { default: PQueue } = await import('p-queue');
+    this.queue = new PQueue({ concurrency });
   }
 
   /**

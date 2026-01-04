@@ -6,7 +6,7 @@ const isLocal = localEnvs.includes(
   import.meta.env.VITE_APP_ENV)
 
 // 创建一个函数来动态获取proxyPrefix
-const getProxyPrefix = async() => {
+const getProxyPrefix = async () => {
   // if (isLocal) {
   //   return '/hzux'
   // }
@@ -14,7 +14,7 @@ const getProxyPrefix = async() => {
   try {
     // 使用ES6动态import替代CommonJS的require
     const storeModule = await
-    import ('@/stores/app');
+      import('@/stores/app');
     const {
       useAppStore
     } = storeModule;
@@ -28,13 +28,16 @@ const getProxyPrefix = async() => {
 }
 
 // 创建一个API工厂函数，确保每次调用时都能获取最新的serverUrl
-const createApiEndpoints = async() => {
+const createApiEndpoints = async () => {
   const proxyPrefix = await getProxyPrefix()
   console.log('proxyPrefix', proxyPrefix)
 
   return {
     // 公共组件相关接口
     export: `${proxyPrefix}/platform/project/export`, // 导出
+
+    // 查询任务状态
+    getTaskStatus: `${proxyPrefix}/v1/task-status`,
 
     // Product 相关接口
     getPages: `${proxyPrefix}/platform/project/design/pages`,

@@ -21,7 +21,7 @@ const common = {
       proper_noun_table_enabled: false,
     },
   },
-  LLM_HOST: "https://openrouter.ai/api", // http://158.2.130.21:9997
+  LLM_HOST: "http://158.2.130.21:9997", // https://openrouter.ai/api
   OPEN_ROUTER_KEY, // must be config
 }
 

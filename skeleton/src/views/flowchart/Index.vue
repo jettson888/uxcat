@@ -1282,11 +1282,13 @@ const savePageDataDebounced = () => {
 const startPolling = () => {
   // 先立即执行一次查询
   loading.value = true;
-  fetchWorkflowDetail();
-
+  fetchTaskStatus();
+  // fetchWorkflowDetail();
+  
   // 设置定时器定期查询
   pollingInterval.value = setInterval(() => {
-    fetchWorkflowDetail();
+    fetchTaskStatus();
+    // fetchWorkflowDetail();
   }, pollingDelay);
 };
 
@@ -1298,6 +1300,32 @@ const stopPolling = () => {
     pollingInterval.value = null;
   }
 };
+
+const fetchTaskStatus = async ()=>{
+  try {
+    const response = await request({
+      url: api.getTaskStatus,
+      method: "post",
+      data: {
+        projectId: route.query.projectId,
+        type: 'flow',
+      },
+    });
+    const { task } = response
+    if (
+      task.status === "completed" ||
+      task.status === "timeout" ||
+      task.status === "failed"
+    ) {
+      stopPolling();
+    }
+    if (task.status === "completed") {
+      fetchWorkflowDetail()
+    }
+  } catch (error) {
+    
+  }
+}
 
 // 获取工作流详情
 const fetchWorkflowDetail = async () => {
