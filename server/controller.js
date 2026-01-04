@@ -12,6 +12,48 @@ const taskManager = require('./utils/task-manager.js');
 const pageQueueManager = require('./utils/page-queue-manager.js');
 const fs = require('fs-extra');
 const path = require('path');
+const { readWorkflowSafely, writeWorkflowSafely } = require('./utils/workflow-file-handler.js');
+
+// 简单的文件锁机制，避免并发写入冲突
+const fileLocks = new Map(); // 存储锁的状态
+const lockWaiters = new Map(); // 存储等待锁的队列
+
+/**
+ * 获取文件锁
+ * @param {string} filePath 文件路径
+ * @returns {Promise<Function>} 释放锁的函数
+ */
+async function acquireFileLock(filePath) {
+    // 如果没有锁，直接获取
+    if (!fileLocks.has(filePath)) {
+        fileLocks.set(filePath, true);
+        return () => releaseFileLock(filePath);
+    }
+
+    // 否则等待锁释放
+    return new Promise((resolve) => {
+        if (!lockWaiters.has(filePath)) {
+            lockWaiters.set(filePath, []);
+        }
+        lockWaiters.get(filePath).push(resolve);
+    });
+}
+
+/**
+ * 释放文件锁
+ * @param {string} filePath 文件路径
+ */
+function releaseFileLock(filePath) {
+    const waiters = lockWaiters.get(filePath) || [];
+    if (waiters.length > 0) {
+        // 将锁传递给下一个等待者
+        const nextResolve = waiters.shift();
+        nextResolve(() => releaseFileLock(filePath));
+    } else {
+        // 没有等待者，释放锁
+        fileLocks.delete(filePath);
+    }
+}
 
 const config = require('./config.js');
 
@@ -39,6 +81,7 @@ async function handleChatCompletions(req, res, data) {
     try {
         // 1. 立即创建任务并返回
         const taskId = `generate-flow-${projectId}`
+        let task = null
         // 创建或更新任务
         if (taskManager.getTask(taskId)) {
             taskManager.updateTask(taskId, {
@@ -46,7 +89,7 @@ async function handleChatCompletions(req, res, data) {
                 updatedAt: Date.now()
             });
         } else {
-            taskManager.createTask(taskId, 'flow', projectId);
+            task = taskManager.createTask(taskId, 'flow', projectId);
         }
 
 
@@ -122,6 +165,7 @@ async function executeFlowGeneration(projectId, prompt) {
                     return await callChatCompletion({
                         messages,
                         tools,
+                        model: 'qwen-coder',
                         signal,
                         timeout: 60000
                     });
@@ -153,12 +197,55 @@ async function executeFlowGeneration(projectId, prompt) {
     }
 }
 
+async function handleWorkflowDetail(req, res, data) {
+    const { projectId } = data
+
+    try {
+        const flow = await readWorkflowSafely(projectId);
+        if (flow) {
+            res.writeHead(200, { "Content-Type": "application/json" });
+            res.end(JSON.stringify({
+                success: true,
+                data: {
+                    content: flow
+                }
+            }));
+        } else {
+            res.writeHead(404, { "Content-Type": "application/json" });
+            res.end(JSON.stringify({
+                success: false,
+                error: 'flow不存在或格式错误'
+            }));
+        }
+    } catch (error) {
+        console.error('读取workflow.json失败:', error);
+        res.writeHead(500, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({
+            success: false,
+            error: '读取flow失败'
+        }));
+    }
+}
+
 // 新增：查询任务状态接口
 function handleTaskStatus(req, res, data) {
     const { projectId, type, pageId } = data;
-    const taskId = type === 'flow' ? `generate-flow-${projectId}` : `generate-code-${projectId}-${pageId}`
+
+    let task = null
+    let taskId = ''
+
     try {
-        const task = taskManager.getTask(taskId);
+        if (type === 'flow') {
+            taskId = `generate-flow-${projectId}`
+            task = taskManager.getTask(taskId);
+        } else {
+            if (pageId) {
+                taskId = `generate-code-${projectId}-${pageId}`
+                task = taskManager.getTask(taskId);
+            } else {
+                task = taskManager.getCodeTasks(projectId);
+            }
+        }
 
         if (!task) {
             res.writeHead(404, { "Content-Type": "application/json" });
@@ -186,13 +273,15 @@ function handleTaskStatus(req, res, data) {
 }
 
 async function handleGenerateCode(req, res, data) {
-    const { projectId, pages = [], pageId = "", pageName = "", description = "" } = data
+    const { projectId, checkedNodes = [], pages = [], pageId = "", pageName = "", description = "" } = data
 
+    const selectedPages = checkedNodes ? checkedNodes : pages;
     try {
         // 判断是批量生成还是单页面重新生成
-        const isSinglePageRegenerate = !pages.length && pageId && pageName && description;
+        const isSinglePageRegenerate = !selectedPages.length && pageId && pageName && description;
 
         let taskIds = [];
+        let tasks = [];
         let message = '';
 
         if (isSinglePageRegenerate) {
@@ -208,7 +297,8 @@ async function handleGenerateCode(req, res, data) {
                     updatedAt: Date.now()
                 });
             } else {
-                taskManager.createTask(taskId, 'code', projectId);
+                const task = taskManager.createTask(taskId, 'code', projectId);
+                tasks.push(task)
             }
 
             // 异步执行单页面生成
@@ -222,27 +312,27 @@ async function handleGenerateCode(req, res, data) {
                 });
             });
 
-        } else if (pages.length > 0) {
+        } else if (selectedPages.length > 0) {
             // 批量生成多个页面
-            taskIds = pages.map(p => `generate-code-${projectId}-${p.pageId}`);
-            message = `批量生成 ${pages.length} 个页面任务已创建`;
+            taskIds = selectedPages.map(p => `generate-code-${projectId}-${p.pageId}`);
+            message = `批量生成 ${selectedPages.length} 个页面任务已创建`;
 
             // 为每个页面创建任务
-            pages.forEach(page => {
-                const taskId = `generate-code-${projectId}-${page.pageId}`;
+            taskIds.forEach(taskId => {
                 if (taskManager.getTask(taskId)) {
                     taskManager.updateTask(taskId, {
                         status: 'pending',
                         updatedAt: Date.now()
                     });
                 } else {
-                    taskManager.createTask(taskId, 'code', projectId);
+                    const task = taskManager.createTask(taskId, 'code', projectId);
+                    tasks.push(task)
                 }
             });
 
             // 异步执行批量生成
             setImmediate(() => {
-                executeCodeGeneration(projectId, pages).catch(error => {
+                executeCodeGeneration(projectId, selectedPages).catch(error => {
                     console.error(`项目 ${projectId} 批量生成失败:`, error);
                 });
             });
@@ -257,7 +347,8 @@ async function handleGenerateCode(req, res, data) {
             success: true,
             projectId,
             taskIds,
-            message
+            message,
+            tasks,
         }));
 
     } catch (error) {
@@ -382,11 +473,11 @@ async function executeSinglePageGeneration(projectId, page) {
  * 5. 写入磁盘
  */
 async function generateSinglePageWithSteps(projectId, page, signal) {
-    const { pageId, pageName, description, navigation = [] } = page;
+    const { pageId, name, description, navigationList = [] } = page;
     let retries = 3; // 重试3次
     let lastError = null;
 
-    console.log(`\n🚀 开始生成页面: ${pageName} (${pageId})`);
+    console.log(`\n🚀 开始生成页面: ${name} (${pageId})`);
 
     // 更新页面状态为 generating
     await updatePageStatus(projectId, pageId, 'generating');
@@ -414,8 +505,8 @@ async function generateSinglePageWithSteps(projectId, page, signal) {
 
             // 成功
             await updatePageStatus(projectId, pageId, 'done', result);
-            console.log(`✅ 页面生成成功: ${pageName}`);
-            return { success: true, pageId, pageName, ...result };
+            console.log(`✅ 页面生成成功: ${name}`);
+            return { success: true, pageId, pageName: name, ...result };
 
         } catch (error) {
             // 如果是取消错误，直接抛出不重试
@@ -442,7 +533,7 @@ async function generateSinglePageWithSteps(projectId, page, signal) {
     // 所有重试都失败
     const status = (lastError.message.includes('超时') || lastError.message.includes('timeout')) ? 'timeout' : 'error';
     await updatePageStatus(projectId, pageId, status, { error: lastError.message });
-    console.error(`💥 页面生成最终失败: ${pageName} - ${lastError.message}`);
+    console.error(`💥 页面生成最终失败: ${name} - ${lastError.message}`);
     throw lastError; // 抛出错误而不是返回对象
 }
 
@@ -451,7 +542,7 @@ async function generateSinglePageWithSteps(projectId, page, signal) {
  * 执行页面生成的三个步骤
  */
 async function generatePageWithStepsInStrict(projectId, page, signal) {
-    const { pageId, pageName, description, navigation = [] } = page;
+    const { pageId, name, description, navigation = [] } = page;
 
     // 步骤1: 调用 LLM 分析需要哪些组件（3分钟超时）
     console.log(`  📝 步骤1: 分析页面所需组件...`);
@@ -478,7 +569,7 @@ async function generatePageWithStepsInStrict(projectId, page, signal) {
 
     // 步骤5: 写入磁盘
     console.log(`  💾 步骤5: 写入文件...`);
-    const filePath = await savePageToFile(projectId, pageId, pageName, code);
+    const filePath = await savePageToFile(projectId, pageId, code);
     console.log(`  ✅ 文件写入成功: ${filePath}`);
 
     return { filePath, codeLength: code.length };
@@ -488,7 +579,7 @@ async function generatePageWithStepsInStrict(projectId, page, signal) {
  * 执行页面生成的三个步骤
  */
 async function generatePageWithStepsInLoose(projectId, page, signal) {
-    const { pageId, pageName, description, navigation = [] } = page;
+    const { pageId, name, description, navigation = [] } = page;
     let componentsNeeded = [];
     let componentExamples = [];
 
@@ -542,7 +633,7 @@ async function generatePageWithStepsInLoose(projectId, page, signal) {
     // 步骤5: 写入磁盘
     if (signal?.aborted) throw new Error('任务被取消');
     console.log(`  💾 步骤5: 写入文件...`);
-    const filePath = await savePageToFile(projectId, pageId, pageName, code);
+    const filePath = await savePageToFile(projectId, pageId, code);
     console.log(`  ✅ 文件写入成功: ${filePath}`);
 
     return { filePath, codeLength: code.length };
@@ -566,6 +657,7 @@ async function analyzeRequiredComponents(page, signal) {
     const response = await callChatCompletion({
         messages,
         signal,
+        model: 'qwen-coder',
         timeout: 120000 // 2分钟
     });
 
@@ -664,6 +756,7 @@ async function generatePageCode(page, componentExamples, signal) {
                     messages,
                     tools,
                     signal,
+                    model: 'qwen-coder',
                     timeout: 120000
                 });
             },
@@ -690,14 +783,19 @@ async function generatePageCode(page, componentExamples, signal) {
 /**
  * 步骤5: 保存页面到文件
  */
-async function savePageToFile(projectId, pageId, pageName, code) {
+async function savePageToFile(projectId, pageId, code) {
     const codeDir = path.join(config.PROJECT_DIR, projectId, '1', 'code');
     await fs.ensureDir(codeDir);
 
     const fileName = `${pageId}.vue`;
     const filePath = path.join(codeDir, fileName);
 
-    await fs.writeFile(filePath, code, 'utf-8');
+    // 使用临时文件和原子操作来避免文件损坏
+    const tempPath = filePath + '.tmp';
+    await fs.writeFile(tempPath, code, 'utf-8');
+
+    // 原子性地替换原文件
+    await fs.move(tempPath, filePath, { overwrite: true });
 
     // TODO: 同步到 client 目录（实时渲染）
     // const clientPath = path.join(config.CLIENT_DIR, 'src', 'views', 'dynamic', fileName);
@@ -710,15 +808,19 @@ async function savePageToFile(projectId, pageId, pageName, code) {
  * 更新页面状态
  */
 async function updatePageStatus(projectId, pageId, status, extraData = {}) {
+    const workflowPath = path.join(config.PROJECT_DIR, projectId, '1', 'data', 'workflow.json');
     try {
-        const workflowPath = path.join(config.PROJECT_DIR, projectId, '1', 'data', 'workflow.json');
 
         if (!await fs.pathExists(workflowPath)) {
             console.warn(`workflow.json 不存在，跳过状态更新: ${workflowPath}`);
             return;
         }
 
-        const workflow = await fs.readJson(workflowPath);
+        const workflow = await readWorkflowSafely(projectId);
+        if (!workflow) {
+            console.warn('无法读取workflow.json，跳过状态更新');
+            return;
+        }
 
         if (!workflow.pages || !Array.isArray(workflow.pages)) {
             console.warn('workflow.json 中没有 pages 数组');
@@ -732,16 +834,43 @@ async function updatePageStatus(projectId, pageId, status, extraData = {}) {
         }
 
         // 更新状态
+        const previousStatus = workflow.pages[pageIndex].status;
         workflow.pages[pageIndex].status = status;
         workflow.pages[pageIndex].updatedAt = Date.now();
         Object.assign(workflow.pages[pageIndex], extraData);
 
-        // 写回文件
-        await fs.writeJson(workflowPath, workflow, { spaces: 2 });
-        console.log(`  📝 已更新页面状态: ${pageId} -> ${status}`);
+        // 添加日志以便调试
+        console.log(`  📝 页面 ${pageId} 状态从 ${previousStatus} 更新为 ${status}`);
+
+        // 使用文件锁避免并发写入冲突
+        const releaseLock = await acquireFileLock(workflowPath);
+        try {
+            // 使用临时文件和原子操作来避免文件损坏
+            const tempPath = workflowPath + '.tmp';
+            await fs.writeJson(tempPath, workflow, { spaces: 2 });
+
+            // 原子性地替换原文件
+            await fs.move(tempPath, workflowPath, { overwrite: true });
+
+            console.log(`  📝 已更新页面状态: ${pageId} -> ${status}`);
+        } finally {
+            // 释放锁
+            releaseLock();
+        }
 
     } catch (error) {
         console.error(`更新页面状态失败:`, error);
+
+        // 尝试清理临时文件
+        try {
+            const tempPath = workflowPath + '.tmp';
+            if (await fs.pathExists(tempPath)) {
+                await fs.remove(tempPath);
+            }
+        } catch (cleanupError) {
+            console.error('清理临时文件失败:', cleanupError);
+        }
+
         // 不抛出异常，避免影响主流程
     }
 }
@@ -755,5 +884,6 @@ module.exports = {
     handleChatCompletions,
     handleGenerateCode,
     handlePlatformProject,
-    handleFlowTaskStatus,
+    handleTaskStatus,
+    handleWorkflowDetail,
 }

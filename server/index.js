@@ -4,7 +4,7 @@ const fs = require('fs-extra');
 const path = require('path');
 const url = require("url");
 const config = require('./config.js');
-const { handleChatCompletions, handleGenerateCode, handlePlatformProject } = require('./controller.js');
+const { handleChatCompletions, handleGenerateCode, handlePlatformProject, handleTaskStatus, handleWorkflowDetail } = require('./controller.js');
 
 
 function bootstrap() {
@@ -66,6 +66,12 @@ function bootstrap() {
           case "/v1/chat/completions":
             handleChatCompletions(req, res, requestData);
             break;
+          case "/v1/task-status":
+            handleTaskStatus(req, res, requestData);
+            break;
+          case "/platform/project/design/workflow/detail":
+            handleWorkflowDetail(req, res, requestData);
+            break;
           case "/v1/generate-code":
             handleGenerateCode(req, res, requestData);
             break;
@@ -93,6 +99,3 @@ function bootstrap() {
 }
 
 bootstrap()
-
-
-//  帮我完善handleGenerateCode生成代码的逻辑，要求并发控制和超时控制，并发可以用p-queue 
