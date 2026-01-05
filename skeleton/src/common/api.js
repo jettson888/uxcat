@@ -50,7 +50,7 @@ const createApiEndpoints = async () => {
     // Home 相关接口
     chatCompletions: `${proxyPrefix}/v1/chat/completions`,
     generateCode: `${proxyPrefix}/v1/generate-code`,
-    getProjects: `${proxyPrefix}/platform/project`,
+    getProjects: `${proxyPrefix}/v1/platform/project`,
     // 更新项目名称
     updateProject: `${proxyPrefix}/platform/project/rename`,
     // 复制项目
@@ -60,7 +60,7 @@ const createApiEndpoints = async () => {
 
     // Flowchart 相关接口
     updateWorkflow: `${proxyPrefix}/v1/update-workflow`,
-    getWorkflowDetail: `${proxyPrefix}/platform/project/design/workflow/detail`,
+    getWorkflowDetail: `${proxyPrefix}/v1/flow/detail`,
 
     // 替换所有内容接口
     initial: `${proxyPrefix}/platform/initial`,
