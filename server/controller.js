@@ -94,24 +94,34 @@ clientDir: {{clientDir}} 项目前端代码实时渲染目录
 async function handleChatCompletions(req, res, data) {
     const { projectId, prompt } = data;
 
+    simpleLogger.divider(`chatCompletion 开始调用 (ProjectId ${projectId})`)
+
+    if (!projectId || !prompt) {
+        res.writeHead(400, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({
+            success: false,
+            message: 'projectId 和 prompt 无效'
+        }));
+        return
+    }
+
     try {
 
         // 1. 立即创建任务并返回
         const taskId = `generate-flow-${projectId}`
 
-        simpleLogger.divider(`任务开始: ${taskId} 初始化中 (ProjectId ${projectId})`)
-
         let task = null
         // 创建或更新任务
         if (taskManager.getTask(taskId)) {
+            simpleLogger.info(`任务 ${taskId} 已存在，状态更新为 pending`)
             task = taskManager.updateTask(taskId, {
                 status: 'pending',
                 error: "",
                 result: "",
                 updatedAt: Date.now()
             });
-            simpleLogger.info(`任务 ${taskId} 已存在，状态更新为 pending`)
         } else {
+            simpleLogger.info(`任务开始: ${taskId} 初始化中 (ProjectId ${projectId})`)
             task = taskManager.createTask(taskId, 'flow', {
                 projectId,
                 prompt
@@ -173,7 +183,6 @@ async function handleChatCompletions(req, res, data) {
 async function executeFlowGeneration(projectId, prompt) {
     const taskId = `generate-flow-${projectId}`
     try {
-        simpleLogger.divider(`任务开始: ${taskId} 处理中 (ProjectId ${projectId})`)
         // 标记任务开始处理
         taskManager.startTask(taskId);
 
@@ -216,7 +225,7 @@ async function executeFlowGeneration(projectId, prompt) {
                     return await callChatCompletion({
                         messages,
                         tools,
-                        model: 'qwen-coder',
+                        model: 'deepseek-reason',
                         signal,
                         timeout: 120000  // 2min
                     });
@@ -274,7 +283,7 @@ async function executeFlowGeneration(projectId, prompt) {
                 status: 'timeout',
                 updatedAt: Date.now()
             });
-            simpleLogger.info(`更新项目 (ProjectId ${projectId}) 状态为 timeout, 页面数: ${workflow?.pages?.length || 0} 页面状态: ${workflow?.pages?.map(p => p.status).join(', ') || '无'}`)
+            simpleLogger.info(`更新项目 (ProjectId ${projectId}) 状态为 timeout`)
         } else {
             taskManager.failTask(taskId, error);
             // 更新项目状态
@@ -284,7 +293,7 @@ async function executeFlowGeneration(projectId, prompt) {
                 status: 'failed',
                 updatedAt: Date.now()
             });
-            simpleLogger.error(`更新项目 (ProjectId ${projectId}) 状态为 failed, 页面数: ${workflow?.pages?.length || 0} 页面状态: ${workflow?.pages?.map(p => p.status).join(', ') || '无'}`)
+            simpleLogger.error(`更新项目 (ProjectId ${projectId}) 状态为 failed`)
         }
     }
 }
@@ -1279,10 +1288,29 @@ async function handlePlatformProject(req, res, data) {
     }));
 };
 
+async function handleProjectPages(req, res, data) {
+    const { projectId } = data
+    try {
+        const workflow = await readWorkflowSafely(projectId);
+        if (workflow) {
+            res.writeHead(200, { "Content-Type": "application/json" });
+            res.end(JSON.stringify({
+                success: true,
+                data: {
+                    list: workflow.pages || [],
+                }
+            }));
+        }
+    } catch (error) {
+
+    }
+}
+
 module.exports = {
     handleChatCompletions,
     handleGenerateCode,
     handlePlatformProject,
     handleTaskStatus,
     handleWorkflowDetail,
+    handleProjectPages,
 }

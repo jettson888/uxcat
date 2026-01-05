@@ -40,7 +40,7 @@ const createApiEndpoints = async () => {
     getTaskStatus: `${proxyPrefix}/v1/task-status`,
 
     // Product 相关接口
-    getPages: `${proxyPrefix}/platform/project/design/pages`,
+    getPages: `${proxyPrefix}/v1/project/pages`,
     regenerateCode: `${proxyPrefix}/v1/regenerate-code`,
     generateRecode: `${proxyPrefix}/v1/generate-recode`,
     saveThumbnail: `${proxyPrefix}/platform/project/upload/pages/img`,

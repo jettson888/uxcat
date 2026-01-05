@@ -1,6 +1,8 @@
 // 添加超时和重试机制
 // 若应用在axios fetch 需要在外层超时时中断内层请求避免占用网络资源，或内层网络请求必须设置且小于外层超时时间
 
+const simpleLogger = require("./simple-logger");
+
 async function callWithTimeout(fn, timeout = 120000) { // 2min
     const abortController = new AbortController();
     const timeoutPromise = new Promise((_, reject) => {
@@ -19,6 +21,7 @@ async function callWithTimeout(fn, timeout = 120000) { // 2min
 async function callWithTimeoutAndRetry(fn, retries = 3, timeout = 120000) { // 2min
     // ✅ 新增：retries=0 表示不重试
     if (retries === 0) {
+        simpleLogger.info(`调用 ${fn.name} 不重试 ${retries}`)
         return await callWithTimeout(fn, timeout);
     }
 
@@ -31,6 +34,7 @@ async function callWithTimeoutAndRetry(fn, retries = 3, timeout = 120000) { // 2
             const timeoutPromise = new Promise((_, reject) => {
                 timeoutId = setTimeout(() => {
                     abortController.abort();
+                    simpleLogger.info(`调用 ${fn.name} 超时 ${timeout}ms`)
                     reject(new Error(`操作超时 (${timeout}ms)`));
                 }, timeout);
             });
@@ -40,6 +44,7 @@ async function callWithTimeoutAndRetry(fn, retries = 3, timeout = 120000) { // 2
             return result;
         } catch (error) {
             clearTimeout(timeoutId);
+            simpleLogger.info(`调用 ${fn.name} 第 ${i + 1} 次尝试失败:`, error.message)
             console.log(`第 ${i + 1} 次尝试失败:`, error.message);
             if (i === retries - 1) {
                 throw error;

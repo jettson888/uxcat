@@ -423,14 +423,16 @@ const checkAndStartPolling = (init) => {
 // 启动轮询
 const startPolling = () => {
   // 先执行一次防止等太久
-  refreshPageData();
+  fetchTaskStatus();
+  // refreshPageData();
 
   // 如果已经存在轮询定时器，先清理
   stopPolling();
 
   // 启动新的轮询，每5秒检查一次
   pollingTimer.value = setInterval(() => {
-    refreshPageData();
+    fetchTaskStatus();
+    // refreshPageData();
   }, 5000);
 };
 
@@ -442,11 +444,41 @@ const stopPolling = () => {
   }
 };
 
+
+const fetchTaskStatus = async ()=>{
+  try {
+    const response = await request({
+      url: api.getTaskStatus,
+      method: "post",
+      data: {
+        projectId: route.query.projectId,
+        type: 'code',
+      },
+    });
+    const { task } = response
+    if (
+      task.status === "completed" ||
+      task.status === "timeout" ||
+      task.status === "failed"
+    ) {
+      stopPolling();
+    }
+    if (task.status === "completed") {
+      refreshPageData();
+    } else {
+    }
+  } catch (error) {
+    
+  }
+}
+
+
 // 轮询刷新页面数据
 const refreshPageData = async () => {
+
   try {
     const newCategoryList = await fetchPageData();
-
+    debugger
     // 更新页面列表数据，保持激活状态
     newCategoryList.forEach((ls) => {
       ls.list.forEach((page) => {
