@@ -1,6 +1,7 @@
 const fileTools = require('../tools/file-tools.js');
 const knowledgeTool = require('../tools/knowledge-tool.js');
 const vue2VerificationTool = require('../tools/vue2-verification-tool.js');
+const simpleLogger = require('./simple-logger.js');
 
 // 尝试导入logger，如果失败则使用空对象
 let logger = null;
@@ -105,24 +106,27 @@ function executeToolStrategyToParams(args) {
 async function executeTool(toolCall, signal) {
     const { name, arguments: argsStr } = toolCall.function;
     let args;
+    simpleLogger.step(`执行工具: ${name}`, argsStr)
 
     if (signal?.aborted) {
+        simpleLogger.error(`执行工具: ${name} 被取消`)
         throw new Error('工具调用被取消');
     }
 
     try {
         args = JSON.parse(argsStr);
     } catch (e) {
+        simpleLogger.error(`执行工具: ${name} 参数解析失败: ${argsStr}`)
         throw new Error(`工具参数解析失败: ${argsStr}`);
     }
 
     console.log(`执行工具: ${name}`, args);
     const tool = allTools.find(tool => tool.name === name)
     if (!tool) {
+        simpleLogger.error(`执行工具: ${name} 未找到`)
         throw new Error(`未找到工具: ${name}`);
     }
 
-    console.log('args----', args)
     // executeToolStrategyToParams(args); 
 
     const result = await tool.execute(args);
@@ -142,6 +146,7 @@ async function handleToolCalls(options) {
 
     let response = await callback(messages, tools);
     console.log('🤖 第1次调用模型，返回:', response.content ? '文本内容' : '工具调用请求');
+    simpleLogger.step(`第1次调用模型`, response.content ? '文本内容' : '工具调用请求')
 
     // 工具调用循环
     while (response.tool_calls && response.tool_calls.length > 0) {
@@ -149,10 +154,12 @@ async function handleToolCalls(options) {
 
         if (iteration > maxIterations) {
             console.error(`工具调用循环超过最大次数限制 (${maxIterations})`);
+            simpleLogger.step(`工具调用循环超过最大次数限制 (${maxIterations})`)
             throw new Error(`工具调用循环次数超限，可能陷入死循环`);
         }
 
         console.log(`\n📋 第${iteration}轮工具调用，共 ${response.tool_calls.length} 个工具`);
+        simpleLogger.step(`第${iteration}轮工具调用`, JSON.stringify(response.tool_calls))
 
         const toolResults = [];
         // 执行所有工具调用
@@ -189,9 +196,11 @@ async function handleToolCalls(options) {
                 if (isCritical) {
                     criticalResults.push(toolResult);
                     console.log(`  ✅ [关键工具] ${toolCall.function.name} 执行成功`);
+                    simpleLogger.info(`  ✅ [关键工具] ${toolCall.function.name} 执行成功`)
                 } else {
                     auxiliaryResults.push(toolResult);
                     console.log(`  ✅ [辅助工具] ${toolCall.function.name} 执行成功`);
+                    simpleLogger.info(`  ✅ [辅助工具] ${toolCall.function.name} 执行成功`)
                 }
             } catch (error) {
                 allToolsSucceeded = false;
@@ -207,16 +216,18 @@ async function handleToolCalls(options) {
                     criticalToolsFailed = true;
                     criticalResults.push(toolResult);
                     console.error(`  ❌ [关键工具] ${toolCall.function.name} 执行失败:`, error.message);
+                    simpleLogger.error(`  ❌ [关键工具] ${toolCall.function.name} 执行失败: ${error.message}`)
                 } else {
                     auxiliaryResults.push(toolResult);
                     console.warn(`  ⚠️  [辅助工具] ${toolCall.function.name} 执行失败（可忽略）:`, error.message);
+                    simpleLogger.warn(`  ⚠️  [辅助工具] ${toolCall.function.name} 执行失败（可忽略）: ${error.message}`)
                 }
 
                 if (transaction) {
                     // 🎯 回滚之前的操作
                     console.log(`\n⚠️  工具执行失败，开始回滚 ${executedOperations.length} 个操作...`);
                     await rollbackOperations(executedOperations);
-
+                    simpleLogger.error(`  ❌ [关键工具] ${toolCall.function.name} 执行失败，已回滚所有操作: ${error.message}`)
                     throw new Error(`工具 ${toolCall.function.name} 执行失败，已回滚所有操作: ${error.message}`);
                 }
             }
@@ -235,7 +246,7 @@ async function handleToolCalls(options) {
         if (earlyExit) {
             if (allToolsSucceeded) {
                 console.log('\n✅ 所有工具执行成功，提前退出（不再调用模型）');
-
+                simpleLogger.info(`  ✅ 所有工具执行成功，提前退出（不再调用模型）`)
                 // 构造一个成功的响应返回
                 return {
                     role: "assistant",
@@ -252,8 +263,10 @@ async function handleToolCalls(options) {
                     const failedAuxCount = auxiliaryResults.filter(r => r.content.includes('error')).length;
 
                     console.log(`\n✅ 关键工具全部成功 (${successCount}/${criticalResults.length})，提前退出`);
+                    simpleLogger.info(`  ✅ 关键工具全部成功 (${successCount}/${criticalResults.length})，提前退出`)
                     if (failedAuxCount > 0) {
                         console.log(`⚠️  辅助工具有 ${failedAuxCount} 个失败（不影响主流程）`);
+                        simpleLogger.warn(`  ⚠️  辅助工具有 ${failedAuxCount} 个失败（不影响主流程）`)
                     }
 
                     return {
@@ -272,8 +285,10 @@ async function handleToolCalls(options) {
 
         // 如果有工具失败，或者禁用了早期退出，继续调用模型让它看结果
         console.log(`\n🔄 继续调用模型（${allToolsSucceeded ? '已禁用早期退出' : '有工具执行失败'}）...`);
+        simpleLogger.step(`  🔄 继续调用模型（${allToolsSucceeded ? '已禁用早期退出' : '有工具执行失败'}）...`)
         response = await callback(messages, tools);
         console.log(`🤖 第${iteration + 1}次调用模型，返回:`, response.content ? '文本内容' : '继续工具调用');
+        simpleLogger.info(`  🤖 第${iteration + 1}次调用模型，返回: ${response.content ? '文本内容' : '继续工具调用'}`)
     }
 
     // 有可能模型决策不用工具 需要todo..

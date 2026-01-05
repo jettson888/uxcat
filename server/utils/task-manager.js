@@ -2,6 +2,7 @@
 const fs = require('fs-extra');
 const path = require('path');
 const config = require('../config.js');
+const simpleLogger = require('./simple-logger.js');
 
 /**
  * 任务管理器
@@ -23,6 +24,7 @@ class TaskManager {
    */
   _parseTaskId(taskId) {
     // 匹配 generate-flow-projectId 或 generate-code-projectId-pageId
+    simpleLogger.info(`任务 ${taskId} 解析中`);
     const match = taskId.match(/^generate-(flow|code)-(.+)$/);
     if (!match) {
       throw new Error(`无效的 taskId 格式: ${taskId}，期望格式: generate-flow-projectId 或 generate-code-projectId-pageId`);
@@ -66,6 +68,7 @@ class TaskManager {
       if (splitIndex === -1) {
         const firstDashIndex = restPart.indexOf('-');
         if (firstDashIndex === -1) {
+          simpleLogger.error(`无效的 code taskId 格式: ${taskId}，期望格式: generate-code-projectId-pageId`)
           throw new Error(`无效的 code taskId 格式: ${taskId}，期望格式: generate-code-projectId-pageId`);
         }
         splitIndex = firstDashIndex;
@@ -92,6 +95,7 @@ class TaskManager {
     } else if (taskType === 'code') {
       return path.join(dataDir, 'task-code.json');
     } else {
+      simpleLogger.error(`未知的任务类型: ${taskType}`);
       throw new Error(`未知的任务类型: ${taskType}`);
     }
   }
@@ -107,13 +111,16 @@ class TaskManager {
   createTask(taskId, taskType = '', options) {
     const { projectId = '' } = options
     const parsed = this._parseTaskId(taskId);
+    simpleLogger.info(`任务 ${taskId} 解析成功`, parsed);
     const actualProjectId = projectId || parsed.projectId;
     const actualTaskType = taskType || parsed.taskType;
 
     if (!actualProjectId) {
+      simpleLogger.error(`创建任务失败：无法确定 projectId (taskId: ${taskId})`);
       throw new Error(`创建任务失败：无法确定 projectId (taskId: ${taskId})`);
     }
     if (!actualTaskType) {
+      simpleLogger.error(`创建任务失败：无法确定 taskType (taskId: ${taskId})`);
       throw new Error(`创建任务失败：无法确定 taskType (taskId: ${taskId})`)
     }
 
@@ -131,6 +138,7 @@ class TaskManager {
 
     this.tasks.set(taskId, task);
     this._saveTaskToFile(actualProjectId, task);
+    simpleLogger.info(`任务 ${taskId} 创建成功`, task);
     return task;
   }
 
@@ -143,6 +151,7 @@ class TaskManager {
       // 尝试从文件加载
       const loadedTask = this._loadTaskFromFile(taskId);
       if (!loadedTask) {
+        simpleLogger.error(`更新任务失败, 任务不存在: ${taskId}`);
         throw new Error(`任务不存在: ${taskId}`);
       }
     }
@@ -151,6 +160,7 @@ class TaskManager {
     Object.assign(currentTask, updates, { updatedAt: Date.now() });
     this.tasks.set(taskId, currentTask);
     this._saveTaskToFile(currentTask.projectId, currentTask);
+    simpleLogger.info(`任务 ${taskId} 更新成功`, currentTask);
     return currentTask;
   }
 
@@ -160,11 +170,14 @@ class TaskManager {
   getTask(taskId) {
     // 优先从内存读取
     if (this.tasks.has(taskId)) {
+      simpleLogger.info(`从内存中获取任务 ${taskId} 成功`)
       return this.tasks.get(taskId);
     }
 
     // 从文件读取
-    return this._loadTaskFromFile(taskId);
+    const task = this._loadTaskFromFile(taskId);
+    simpleLogger.info(`从文件中获取任务 ${taskId} 成功`, task)
+    return task
   }
 
   /**
@@ -174,6 +187,7 @@ class TaskManager {
    */
   getCodeTasks(projectId) {
     const taskFilePath = this._getTaskFilePath(projectId, 'code');
+    simpleLogger.info(`获取 code 任务文件路径成功, 项目 ${projectId} 解析成功 `, { projectId, taskFilePath })
 
     try {
       if (fs.existsSync(taskFilePath)) {
@@ -182,9 +196,11 @@ class TaskManager {
         tasks.forEach(task => {
           this.tasks.set(task.taskId, task);
         });
+        simpleLogger.info(`加载 code 任务列表成功, 项目 ${projectId} 解析成功 `, { projectId, tasks })
         return tasks;
       }
     } catch (error) {
+      simpleLogger.error(`加载 code 任务列表失败, 项目 ${projectId} 解析失败 `, { projectId, error })
       console.error('加载 code 任务列表失败:', error);
     }
 
@@ -193,31 +209,40 @@ class TaskManager {
 
   // 标记任务为处理中
   startTask(taskId) {
-    return this.updateTask(taskId, { status: 'processing' });
+    const task = this.updateTask(taskId, { status: 'processing' });
+    simpleLogger.info(`任务 ${taskId} 开始处理中 `, { ...task, status: 'processing' })
+    return task
   }
 
   // 标记任务完成
   completeTask(taskId, result) {
-    return this.updateTask(taskId, {
+    const task = this.updateTask(taskId, {
       status: 'completed',
       result
-    });
+    })
+    simpleLogger.info(`任务 ${taskId} 已完成 `, { ...task, result })
+    return task;
   }
 
   // 标记任务失败
   failTask(taskId, error) {
-    return this.updateTask(taskId, {
+    const task = this.updateTask(taskId, {
       status: 'failed',
       error: error.message || String(error)
     });
+
+    simpleLogger.error(`任务 ${taskId} 处理失败 `, { ...task, error })
+    return task;
   }
 
   // 标记任务超时
   timeoutTask(taskId) {
-    return this.updateTask(taskId, {
+    const task = this.updateTask(taskId, {
       status: 'timeout',
       error: '任务执行超时'
     });
+    simpleLogger.error(`任务 ${taskId} 超时 `, { ...task, error: '任务执行超时' })
+    return task;
   }
 
   /**
@@ -233,6 +258,7 @@ class TaskManager {
       if (task.taskType === 'flow') {
         // flow 任务：直接覆盖写入
         fs.writeJsonSync(taskFilePath, task, { spaces: 2 });
+        simpleLogger.info(`项目 ${projectId} 已保存到文件[flow] ${taskFilePath}`, task)
       } else if (task.taskType === 'code') {
         // code 任务：读取现有列表，更新或添加当前任务
         let tasks = [];
@@ -249,8 +275,10 @@ class TaskManager {
         }
 
         fs.writeJsonSync(taskFilePath, tasks, { spaces: 2 });
+        simpleLogger.info(`项目 ${projectId} 已保存到文件[code] ${taskFilePath}`, task)
       }
     } catch (error) {
+      simpleLogger.error(`项目 ${projectId} 文件保存失败 `, { ...task, error })
       console.error('保存任务文件失败:', error);
     }
   }
@@ -263,6 +291,7 @@ class TaskManager {
   _loadTaskFromFile(taskId) {
     try {
       const parsed = this._parseTaskId(taskId);
+      simpleLogger.info(`正在从文件中加载任务, 任务 ${taskId} 解析成功`, parsed);
 
       if (parsed.taskType === 'flow') {
         // flow 任务：从 task-flow.json 读取
@@ -270,6 +299,7 @@ class TaskManager {
         if (fs.existsSync(taskFilePath)) {
           const task = fs.readJsonSync(taskFilePath);
           this.tasks.set(taskId, task);
+          simpleLogger.info(`从文件中加载任务成功, 任务 ${taskId} [flow] 解析成功`, task);
           return task;
         }
       } else if (parsed.taskType === 'code') {
@@ -279,11 +309,13 @@ class TaskManager {
           const task = tasks.find(t => t.taskId === taskId);
           if (task) {
             this.tasks.set(taskId, task);
+            simpleLogger.info(`从文件中加载任务成功, 任务 ${taskId} [code] 解析成功`, task);
             return task;
           }
         }
       }
     } catch (error) {
+      simpleLogger.error(`从文件中加载任务失败, 任务 ${taskId} 解析失败 `, { ...parsed, error })
       console.error('加载任务文件失败:', error);
     }
     return null;
@@ -297,6 +329,7 @@ class TaskManager {
     for (const [taskId, task] of this.tasks.entries()) {
       if (now - task.updatedAt > expireTime) {
         this.tasks.delete(taskId);
+        simpleLogger.info(`任务 ${taskId} 已过期, 已从内存中删除`);
       }
     }
   }

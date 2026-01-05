@@ -22,6 +22,7 @@ const fs = require('fs-extra');
 const path = require('path');
 const { readWorkflowSafely, writeWorkflowSafely } = require('./utils/workflow-file-handler.js');
 const logger = require('./utils/logger.js');
+const projectManager = require('./utils/project-manager.js');
 
 // 简单的文件锁机制，避免并发写入冲突
 const fileLocks = new Map(); // 存储锁的状态
@@ -33,14 +34,18 @@ const lockWaiters = new Map(); // 存储等待锁的队列
  * @returns {Promise<Function>} 释放锁的函数
  */
 async function acquireFileLock(filePath) {
+    simpleLogger.info('acquireFileLock', `获取文件锁: ${filePath}`, { filePath });
+
     // 如果没有锁，直接获取
     if (!fileLocks.has(filePath)) {
+        simpleLogger.info('acquireFileLock', `文件锁不存在，直接获取: ${filePath}`, { filePath });
         fileLocks.set(filePath, true);
         return () => releaseFileLock(filePath);
     }
 
     // 否则等待锁释放
     return new Promise((resolve) => {
+        simpleLogger.info('acquireFileLock', `文件锁已存在，等待释放: ${filePath}`, { filePath });
         if (!lockWaiters.has(filePath)) {
             lockWaiters.set(filePath, []);
         }
@@ -53,12 +58,15 @@ async function acquireFileLock(filePath) {
  * @param {string} filePath 文件路径
  */
 function releaseFileLock(filePath) {
+    simpleLogger.info('releaseFileLock', `释放文件锁: ${filePath}`, { filePath });
     const waiters = lockWaiters.get(filePath) || [];
     if (waiters.length > 0) {
         // 将锁传递给下一个等待者
+        simpleLogger.info('releaseFileLock', `将锁传递给下一个等待者: ${filePath}`, { filePath });
         const nextResolve = waiters.shift();
         nextResolve(() => releaseFileLock(filePath));
     } else {
+        simpleLogger.info('releaseFileLock', `没有等待者，释放文件锁: ${filePath}`, { filePath });
         // 没有等待者，释放锁
         fileLocks.delete(filePath);
     }
@@ -87,8 +95,12 @@ async function handleChatCompletions(req, res, data) {
     const { projectId, prompt } = data;
 
     try {
+
         // 1. 立即创建任务并返回
         const taskId = `generate-flow-${projectId}`
+
+        simpleLogger.divider(`任务开始: ${taskId} 初始化中 (ProjectId ${projectId})`)
+
         let task = null
         // 创建或更新任务
         if (taskManager.getTask(taskId)) {
@@ -98,13 +110,28 @@ async function handleChatCompletions(req, res, data) {
                 result: "",
                 updatedAt: Date.now()
             });
+            simpleLogger.info(`任务 ${taskId} 已存在，状态更新为 pending`)
         } else {
             task = taskManager.createTask(taskId, 'flow', {
                 projectId,
                 prompt
             });
+            simpleLogger.info(`任务 ${taskId} 已创建，状态为 pending`)
         }
 
+        simpleLogger.info(`项目信息初始化中`, task)
+
+        // 记录项目信息
+        const projectPath = path.join(config.PROJECT_DIR, projectId);
+        const project = {
+            projectId,
+            prompt,
+            pages: [],
+            status: 'pending',
+            path: projectPath
+        }
+        await projectManager.updateProject(project);
+        simpleLogger.info(`项目信息初始化完成`, project)
 
         res.writeHead(200, { "Content-Type": "application/json" });
         res.end(JSON.stringify({
@@ -124,6 +151,16 @@ async function handleChatCompletions(req, res, data) {
 
     } catch (error) {
         console.error('创建任务失败:', error);
+        // 更新项目状态
+        const project = {
+            projectId,
+            pages: [],
+            status: 'failed',
+            updatedAt: Date.now()
+        }
+        await projectManager.updateProject(project);
+        simpleLogger.error(`项目 ${projectId} 创建任务失败: ${error.message || '创建任务失败'}`, project)
+
         res.writeHead(500, { "Content-Type": "application/json" });
         res.end(JSON.stringify({
             success: false,
@@ -136,6 +173,7 @@ async function handleChatCompletions(req, res, data) {
 async function executeFlowGeneration(projectId, prompt) {
     const taskId = `generate-flow-${projectId}`
     try {
+        simpleLogger.divider(`任务开始: ${taskId} 处理中 (ProjectId ${projectId})`)
         // 标记任务开始处理
         taskManager.startTask(taskId);
 
@@ -191,7 +229,32 @@ async function executeFlowGeneration(projectId, prompt) {
 
         // 重试3次, 2分钟超时
         const result = await callWithTimeoutAndRetry(task, 3, 180000);
+        simpleLogger.info(`任务 ${taskId} 处理完成 (ProjectId ${projectId}) 结果: ${result}`)
 
+        // 读取workflow.json
+        const workflow = await readWorkflowSafely(projectId);
+        if (workflow) {
+            const pages = workflow.pages || [];
+            const projectName = workflow.projectName || '';
+            // 更新项目状态
+            await projectManager.updateProject({
+                projectId,
+                projectName,
+                pages: pages.map(p => ({ pageId: p.pageId, status: 'pending' })),
+                status: 'completed',
+                updatedAt: Date.now()
+            });
+            simpleLogger.info(`更新项目 (ProjectId ${projectId}) 状态为 completed, 页面数: ${workflow.pages.length} 页面状态: ${workflow.pages.map(p => p.status).join(', ')}`)
+        } else {
+            // 更新项目状态
+            await projectManager.updateProject({
+                projectId,
+                pages: [],
+                status: 'completed',
+                updatedAt: Date.now()
+            });
+            simpleLogger.info(`更新项目 (ProjectId ${projectId}) 状态为 completed, 页面数: ${workflow.pages.length} 页面状态: ${workflow.pages.map(p => p.status).join(', ')}`)
+        }
         // 任务完成
         taskManager.completeTask(taskId, {
             message: result,
@@ -200,12 +263,28 @@ async function executeFlowGeneration(projectId, prompt) {
 
     } catch (error) {
         console.error(`项目 ${projectId} 生成失败:`, error);
-
+        simpleLogger.error(`项目 ${projectId} 生成失败: ${error.message || '生成失败'}`)
         // 判断是否超时
         if (error.message.includes('超时') || error.message.includes('timeout')) {
             taskManager.timeoutTask(taskId);
+            // 更新项目状态
+            await projectManager.updateProject({
+                projectId,
+                pages: [],
+                status: 'timeout',
+                updatedAt: Date.now()
+            });
+            simpleLogger.info(`更新项目 (ProjectId ${projectId}) 状态为 timeout, 页面数: ${workflow?.pages?.length || 0} 页面状态: ${workflow?.pages?.map(p => p.status).join(', ') || '无'}`)
         } else {
             taskManager.failTask(taskId, error);
+            // 更新项目状态
+            await projectManager.updateProject({
+                projectId,
+                pages: [],
+                status: 'failed',
+                updatedAt: Date.now()
+            });
+            simpleLogger.error(`更新项目 (ProjectId ${projectId}) 状态为 failed, 页面数: ${workflow?.pages?.length || 0} 页面状态: ${workflow?.pages?.map(p => p.status).join(', ') || '无'}`)
         }
     }
 }
@@ -297,6 +376,7 @@ async function handleGenerateCode(req, res, data) {
         let tasks = [];
         let message = '';
 
+        simpleLogger.info(`生成代码请求: projectId=${projectId}, isSinglePageRegenerate=${isSinglePageRegenerate}, selectedPages=${JSON.stringify(selectedPages)}, pageId=${pageId}, name=${name}, description=${description}`)
         if (isSinglePageRegenerate) {
             // 单页面重新生成
             const taskId = `generate-code-${projectId}-${pageId}`;
@@ -318,6 +398,7 @@ async function handleGenerateCode(req, res, data) {
                 });
                 tasks.push(task)
             }
+            simpleLogger.info(`创建或更新任务 (TaskId ${taskId}) 状态为 pending, 项目ID: ${projectId}, 页面ID: ${pageId}, 名称: ${name}, 描述: ${description}`)
 
             // 异步执行单页面生成
             setImmediate(() => {
@@ -327,6 +408,7 @@ async function handleGenerateCode(req, res, data) {
                     description
                 }).catch(error => {
                     console.error(`页面 ${pageId} 生成失败:`, error);
+                    simpleLogger.error(`页面 ${pageId} 生成失败: ${error.message || '生成失败'}`)
                 });
             });
 
@@ -335,6 +417,7 @@ async function handleGenerateCode(req, res, data) {
             taskIds = selectedPages.map(p => `generate-code-${projectId}-${p.pageId}`);
             message = `批量生成 ${selectedPages.length} 个页面任务已创建`;
 
+            simpleLogger.info(`批量生成 ${selectedPages.length} 个页面任务已创建, 项目ID: ${projectId}, 页面ID列表: ${selectedPages.map(p => p.pageId).join(', ')}`)
             // 为每个页面创建任务
             taskIds.forEach(taskId => {
                 if (taskManager.getTask(taskId)) {
@@ -351,15 +434,17 @@ async function handleGenerateCode(req, res, data) {
                     tasks.push(task)
                 }
             });
-
+            simpleLogger.info(`为 ${selectedPages.length} 个页面创建任务完成, 项目ID: ${projectId}, 任务ID列表: ${taskIds.join(', ')}`)
             // 异步执行批量生成
             setImmediate(() => {
                 executeCodeGeneration(projectId, selectedPages).catch(error => {
                     console.error(`项目 ${projectId} 批量生成失败:`, error);
+                    simpleLogger.error(`项目 ${projectId} 批量生成失败: ${error.message || '生成失败'}`)
                 });
             });
 
         } else {
+            simpleLogger.error(`生成代码请求参数错误: projectId=${projectId}, isSinglePageRegenerate=${isSinglePageRegenerate}, selectedPages=${JSON.stringify(selectedPages)}, pageId=${pageId}, name=${name}, description=${description}`)
             // 参数错误
             throw new Error('请提供 pages 数组或单个页面信息（pageId, name, description）');
         }
@@ -375,6 +460,7 @@ async function handleGenerateCode(req, res, data) {
 
     } catch (error) {
         console.error('创建代码生成任务失败:', error);
+        simpleLogger.error(`创建代码生成任务失败: ${error.message || '创建任务失败'}`)
         res.writeHead(500, { "Content-Type": "application/json" });
         res.end(JSON.stringify({
             success: false,
@@ -382,6 +468,32 @@ async function handleGenerateCode(req, res, data) {
         }));
     }
 };
+
+// 同步project
+async function syncProjectWithPage(projectId, page, status) {
+    try {
+        const project = await projectManager.getProject(projectId);
+        if (project) {
+            // 合并已完成页面
+            const pageIndex = project.pages.findIndex(p => p.pageId === page.pageId);
+            if (pageIndex !== -1) {
+                project.pages[pageIndex].status = status;
+            } else {
+                project.pages.push({ pageId: page.pageId, status: status });
+            }
+            // 更新项目状态
+            await projectManager.updateProject({
+                projectId,
+                pages: project.pages,
+                status: 'completed',
+                updatedAt: Date.now()
+            });
+            simpleLogger.info(`同步项目 ${projectId} 页面 ${page.pageId} 状态 ${status} 成功`);
+        }
+    } catch (error) {
+        simpleLogger.info(`同步项目 ${projectId} 页面 ${page.pageId} 状态 ${status} 失败: ${error.message}`);
+    }
+}
 
 /**
  * 执行代码生成（批量，使用队列管理）
@@ -402,9 +514,12 @@ async function executeCodeGeneration(projectId, pages) {
                     try {
                         // 标记任务开始处理
                         taskManager.startTask(taskId);
+                        await syncProjectWithPage(projectId, page, 'generating');
 
                         // 执行生成
                         const result = await generateSinglePageWithSteps(projectId, page, signal);
+
+                        await syncProjectWithPage(projectId, page, 'completed');
 
                         // 标记任务完成
                         taskManager.completeTask(taskId, result);
@@ -415,13 +530,16 @@ async function executeCodeGeneration(projectId, pages) {
                         // 判断是否超时
                         if (error.message.includes('超时') || error.message.includes('timeout')) {
                             taskManager.timeoutTask(taskId);
+                            await syncProjectWithPage(projectId, page, 'timeout');
                             simpleLogger.error(`页面生成任务超时: ${page.name}`, error);
                         } else if (error.message.includes('取消')) {
                             // 任务被取消，不更新状态（保持 pending）
                             console.log(`⚠️  任务被取消: ${taskId}`);
+                            await syncProjectWithPage(projectId, page, 'pending');
                             simpleLogger.warn(`页面生成任务被取消: ${page.name}`);
                         } else {
                             taskManager.failTask(taskId, error);
+                            await syncProjectWithPage(projectId, page, 'error');
                             simpleLogger.error(`页面生成任务失败: ${page.name}`, error);
                         }
                         return { success: false, pageId: page.pageId, error: error.message };
@@ -462,11 +580,13 @@ async function executeSinglePageGeneration(projectId, page) {
         await pageQueueManager.addTask(pageId, async (signal) => {
             try {
                 // 标记任务开始处理
+                await syncProjectWithPage(projectId, page, 'generating');
                 taskManager.startTask(taskId);
 
                 // 执行生成
                 const result = await generateSinglePageWithSteps(projectId, page, signal);
 
+                await syncProjectWithPage(projectId, page, 'completed');
                 // 标记任务完成
                 taskManager.completeTask(taskId, result);
 
@@ -475,21 +595,25 @@ async function executeSinglePageGeneration(projectId, page) {
                 // 判断是否超时
                 if (error.message.includes('超时') || error.message.includes('timeout')) {
                     taskManager.timeoutTask(taskId);
+                    await syncProjectWithPage(projectId, page, 'timeout');
                 } else if (error.message.includes('取消')) {
                     // 任务被取消，不更新状态
+                    await syncProjectWithPage(projectId, page, 'pending');
                     console.log(`⚠️  任务被取消: ${taskId}`);
                 } else {
                     taskManager.failTask(taskId, error);
+                    await syncProjectWithPage(projectId, page, 'error');
                 }
                 throw error;
             }
         });
 
-        console.log(`✅ 页面重新生成成功: ${name}`);
+        simpleLogger.info(`✅ 页面重新生成成功: ${name}`);
 
     } catch (error) {
         if (!error.message.includes('取消')) {
-            console.error(`页面重新生成失败: ${name}`, error);
+            await syncProjectWithPage(projectId, page, 'error');
+            simpleLogger.error(`页面重新生成失败: ${name}`, error);
         }
     }
 }
@@ -515,6 +639,8 @@ async function generateSinglePageWithSteps(projectId, page, signal) {
         hasSignal: !!signal
     }, 'executeCodeGeneration/executeSinglePageGeneration', null, [], 'started');
 
+    simpleLogger.step('generateSinglePageWithSteps', '开始生成页面', { projectId, pageId, name });
+
     console.log(`\n🚀 开始生成页面: ${name} (${pageId})`);
 
     // 更新页面状态为 generating
@@ -524,6 +650,7 @@ async function generateSinglePageWithSteps(projectId, page, signal) {
         try {
             // 检查是否已取消 场景 A（排队时被取消/重试前被取消）：Gatekeeper
             if (signal?.aborted) {
+                simpleLogger.error('generateSinglePageWithSteps before', '任务被取消', { projectId, pageId, name });
                 throw new Error('任务被取消');
             }
 
@@ -532,6 +659,7 @@ async function generateSinglePageWithSteps(projectId, page, signal) {
 
             // 再次检查是否已取消（防止在生成过程中被取消但未抛出错误的情况）
             if (signal?.aborted) {
+                simpleLogger.error('generateSinglePageWithSteps after', '任务被取消', { projectId, pageId, name });
                 throw new Error('任务被取消');
             }
 
@@ -735,6 +863,7 @@ async function generatePageWithStepsInLoose(projectId, page, signal) {
     // 构造返回结果
     // 如果生成失败（比如 write_file 没成功），这里可能会没有 code
     if (!success || !code) {
+        simpleLogger.error('generateSinglePageWithSteps', '代码生成失败', { projectId, pageId, name });
         throw new Error(`代码生成失败: ${generationResult.error || '未生成有效代码'}`);
     }
 
@@ -851,6 +980,7 @@ async function generatePageCode(page, context, signal) {
     const { name, description, navigationList = [] } = page;
 
     console.log('generatePageCode:context----', context)
+    simpleLogger.info('generatePageCode', '开始生成页面代码', { projectId: context.projectId, pageId: page.pageId, name });
     // 使用代码模板
     const codePromptTemplate = context.components.length > 0 ? HZB_SYSTEM_PROMPT : CODE_PROMPT;
     const prompt = replacePlaceholders(codePromptTemplate, {
@@ -910,6 +1040,7 @@ async function generatePageCode(page, context, signal) {
         await task();
     } catch (error) {
         console.warn('generatePageCode task execution warning:', error.message);
+        simpleLogger.error('generatePageCode', '任务执行警告', { projectId: context.projectId, pageId: page.pageId, name, error: error.message });
         // 即使任务抛错（如循环超限），我们仍尝试从历史消息中提取结果
     }
 
@@ -968,7 +1099,7 @@ async function generatePageCode(page, context, signal) {
             }
         }
     }
-
+    simpleLogger.info('generatePageCode', '任务执行完成', { projectId: context.projectId, pageId: page.pageId, name, success: !!lastCode, filePath: lastFilePath, isVerified, verificationResult, toolResults });
     return {
         success: !!lastCode, // 只要生成了代码就算初步成功
         code: lastCode,
@@ -983,6 +1114,8 @@ async function generatePageCode(page, context, signal) {
  * 步骤5: 保存页面到文件
  */
 async function savePageToFile(projectId, pageId, code) {
+    simpleLogger.info('savePageToFile', `保存页面到文件: ${pageId}`, { projectId });
+
     const codeDir = path.join(config.PROJECT_DIR, projectId, '1', 'code');
     await fs.ensureDir(codeDir);
 
@@ -1001,8 +1134,10 @@ async function savePageToFile(projectId, pageId, code) {
         const clientPath = path.join(config.CLIENT_DIR, 'src', 'views', 'dynamic', fileName);
         await fs.copy(filePath, clientPath);
         console.log(`  📁 同步到客户端: ${clientPath}`);
+        simpleLogger.info('savePageToFile', `同步到客户端: ${clientPath}`, { projectId });
     } catch (error) {
         console.error(`  ❌ 同步到客户端失败:`, error.message);
+        simpleLogger.error('savePageToFile', `同步到客户端失败: ${error.message}`, { projectId });
         // 不抛出错误，因为项目目录已保存成功
     }
 
@@ -1014,27 +1149,33 @@ async function savePageToFile(projectId, pageId, code) {
  */
 async function updatePageStatus(projectId, pageId, status, extraData = {}) {
     const workflowPath = path.join(config.PROJECT_DIR, projectId, '1', 'data', 'workflow.json');
+    simpleLogger.info('updatePageStatus', `更新页面状态: ${pageId} 为 ${status}`, { projectId, pageId, status, extraData });
+
     try {
 
         if (!await fs.pathExists(workflowPath)) {
             console.warn(`workflow.json 不存在，跳过状态更新: ${workflowPath}`);
+            simpleLogger.warn('updatePageStatus', `workflow.json 不存在，跳过状态更新: ${workflowPath}`, { projectId, pageId, status, extraData });
             return;
         }
 
         const workflow = await readWorkflowSafely(projectId);
         if (!workflow) {
             console.warn('无法读取workflow.json，跳过状态更新');
+            simpleLogger.warn('updatePageStatus', '无法读取workflow.json，跳过状态更新', { projectId, pageId, status, extraData });
             return;
         }
 
         if (!workflow.pages || !Array.isArray(workflow.pages)) {
             console.warn('workflow.json 中没有 pages 数组');
+            simpleLogger.warn('updatePageStatus', 'workflow.json 中没有 pages 数组', { projectId, pageId, status, extraData });
             return;
         }
 
         const pageIndex = workflow.pages.findIndex(p => p.pageId === pageId);
         if (pageIndex === -1) {
             console.warn(`页面 ${pageId} 在 workflow.json 中不存在`);
+            simpleLogger.warn('updatePageStatus', `页面 ${pageId} 在 workflow.json 中不存在`, { projectId, pageId, status, extraData });
             return;
         }
 
@@ -1046,6 +1187,7 @@ async function updatePageStatus(projectId, pageId, status, extraData = {}) {
 
         // 添加日志以便调试
         console.log(`  📝 页面 ${pageId} 状态从 ${previousStatus} 更新为 ${status}`);
+        simpleLogger.info('updatePageStatus', `页面 ${pageId} 状态从 ${previousStatus} 更新为 ${status}`, { projectId, pageId, status, extraData });
 
         // 使用文件锁避免并发写入冲突
         const releaseLock = await acquireFileLock(workflowPath);
@@ -1062,6 +1204,7 @@ async function updatePageStatus(projectId, pageId, status, extraData = {}) {
                     Object.assign(latestWorkflow.pages[latestPageIndex], extraData);
 
                     console.log(`  📝 页面 ${pageId} 状态从 ${previousStatus} 更新为 ${status} (使用最新文件)`);
+                    simpleLogger.info('updatePageStatus', `页面 ${pageId} 状态从 ${previousStatus} 更新为 ${status} (使用最新文件)`, { projectId, pageId, status, extraData });
 
                     // 使用临时文件和原子操作来避免文件损坏
                     const tempPath = workflowPath + '.tmp';
@@ -1071,12 +1214,15 @@ async function updatePageStatus(projectId, pageId, status, extraData = {}) {
                     await fs.move(tempPath, workflowPath, { overwrite: true });
 
                     console.log(`  📝 已更新页面状态: ${pageId} -> ${status}`);
+                    simpleLogger.info('updatePageStatus', `已更新页面状态: ${pageId} -> ${status}`, { projectId, pageId, status, extraData });
                 } else {
                     console.warn(`页面 ${pageId} 在最新workflow中不存在`);
+                    simpleLogger.warn('updatePageStatus', `页面 ${pageId} 在最新workflow中不存在`, { projectId, pageId, status, extraData });
                 }
             } else {
                 console.warn('无法获取最新的workflow数据，使用原始数据');
                 // 退回到原始逻辑
+                simpleLogger.warn('updatePageStatus', '无法获取最新的workflow数据，使用原始数据', { projectId, pageId, status, extraData });
                 const tempPath = workflowPath + '.tmp';
                 await fs.writeJson(tempPath, workflow, { spaces: 2 });
 
@@ -1084,6 +1230,7 @@ async function updatePageStatus(projectId, pageId, status, extraData = {}) {
                 await fs.move(tempPath, workflowPath, { overwrite: true });
 
                 console.log(`  📝 已更新页面状态: ${pageId} -> ${status}`);
+                simpleLogger.info('updatePageStatus', `已更新页面状态: ${pageId} -> ${status}`, { projectId, pageId, status, extraData });
             }
         } finally {
             // 释放锁
@@ -1092,6 +1239,7 @@ async function updatePageStatus(projectId, pageId, status, extraData = {}) {
 
     } catch (error) {
         console.error(`更新页面状态失败:`, error);
+        simpleLogger.error('updatePageStatus', `更新页面状态失败: ${error.message}`, { projectId, pageId, status, extraData });
 
         // 尝试清理临时文件
         try {
@@ -1101,15 +1249,34 @@ async function updatePageStatus(projectId, pageId, status, extraData = {}) {
             }
         } catch (cleanupError) {
             console.error('清理临时文件失败:', cleanupError);
+            simpleLogger.error('updatePageStatus', `清理临时文件失败: ${cleanupError.message}`, { projectId, pageId, status, extraData });
         }
 
         // 不抛出异常，避免影响主流程
     }
 }
 
-function handlePlatformProject(req, res, data) {
-    const { projectId } = data
+async function handlePlatformProject(req, res, data) {
+    const { sort, projectName } = data
+    const projectObj = await projectManager.getProjectMap()
+    const projects = Object.values(projectObj)
 
+    if (sort === 'createTime') {
+        // 项目创建时间createAt 升序
+        projects.sort((a, b) => {
+            const timeA = a.createAt;
+            const timeB = b.createAt;
+            return new Date(timeB) - new Date(timeA)
+        })
+    }
+
+    res.writeHead(200, { "Content-Type": "application/json" });
+    res.end(JSON.stringify({
+        success: true,
+        data: {
+            list: projects,
+        }
+    }));
 };
 
 module.exports = {

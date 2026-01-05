@@ -1,6 +1,7 @@
 const fs = require('fs-extra');
 const path = require('path');
 const config = require('../config.js');
+const simpleLogger = require('./simple-logger.js');
 
 /**
  * 安全地读取workflow.json文件
@@ -8,11 +9,13 @@ const config = require('../config.js');
  * @returns {object|null} 解析后的workflow对象或null（如果读取失败）
  */
 async function readWorkflowSafely(projectId) {
+  simpleLogger.info('readWorkflowSafely', `开始读取workflow.json: ${projectId}`);
   try {
     const workflowPath = path.join(config.PROJECT_DIR, projectId, '1', 'data', 'workflow.json');
 
     if (!await fs.pathExists(workflowPath)) {
       console.warn(`workflow.json 不存在: ${workflowPath}`);
+      simpleLogger.warn('readWorkflowSafely', `workflow.json 不存在: ${workflowPath}`, { projectId });
       return null;
     }
 
@@ -24,19 +27,21 @@ async function readWorkflowSafely(projectId) {
       return JSON.parse(content);
     } catch (parseError) {
       console.error(`解析workflow.json失败:`, parseError.message);
-
+      simpleLogger.error('readWorkflowSafely', `解析workflow.json失败: ${parseError.message}`, { projectId });
       // 尝试修复JSON格式问题
       const fixedContent = fixJsonContent(content);
       if (fixedContent) {
         try {
           const parsed = JSON.parse(fixedContent);
           console.log('已修复workflow.json格式问题，正在保存修复后的文件...');
+          simpleLogger.info('readWorkflowSafely', `已修复workflow.json格式问题，正在保存修复后的文件...: ${projectId}`);
 
           // 使用安全方式写回修复后的文件
           await writeWorkflowSafely(projectId, parsed);
           return parsed;
         } catch (fixError) {
           console.error('修复workflow.json失败:', fixError);
+          simpleLogger.error('readWorkflowSafely', `修复workflow.json失败: ${fixError.message}`, { projectId });
           return null;
         }
       }
@@ -44,6 +49,7 @@ async function readWorkflowSafely(projectId) {
     }
   } catch (error) {
     console.error(`读取workflow.json失败:`, error);
+    simpleLogger.error('readWorkflowSafely', `读取workflow.json失败: ${error.message}`, { projectId });
     return null;
   }
 }
@@ -54,6 +60,7 @@ async function readWorkflowSafely(projectId) {
  * @returns {string|null} 修复后的JSON内容或null（如果无法修复）
  */
 function fixJsonContent(content) {
+  simpleLogger.info('fixJsonContent', `开始修复JSON内容: ${content}`);
   try {
     // 移除文件末尾的多余内容
     // 查找最后一个有效的JSON闭合括号/方括号
@@ -113,6 +120,7 @@ function fixJsonContent(content) {
     return null;
   } catch (error) {
     console.error('修复JSON内容时出错:', error);
+    simpleLogger.error('fixJsonContent', `修复JSON内容时出错: ${error.message}`);
     return null;
   }
 }
@@ -124,6 +132,7 @@ function fixJsonContent(content) {
  * @returns {boolean} 是否写入成功
  */
 async function writeWorkflowSafely(projectId, workflow) {
+  simpleLogger.info('writeWorkflowSafely', `开始写入workflow.json: ${projectId}`);
   try {
     const workflowPath = path.join(config.PROJECT_DIR, projectId, '1', 'data', 'workflow.json');
     const tempPath = workflowPath + '.tmp';
@@ -138,9 +147,11 @@ async function writeWorkflowSafely(projectId, workflow) {
     await fs.move(tempPath, workflowPath, { overwrite: true });
 
     console.log(`  📝 已安全写入workflow.json: ${workflowPath}`);
+    simpleLogger.info('writeWorkflowSafely', `已安全写入workflow.json: ${workflowPath}`, { projectId });
     return true;
   } catch (error) {
     console.error(`安全写入workflow.json失败:`, error);
+    simpleLogger.error('writeWorkflowSafely', `安全写入workflow.json失败: ${error.message}`, { projectId });
 
     // 尝试清理临时文件
     try {
@@ -151,6 +162,7 @@ async function writeWorkflowSafely(projectId, workflow) {
       }
     } catch (cleanupError) {
       console.error('清理临时文件失败:', cleanupError);
+      simpleLogger.error('writeWorkflowSafely', `清理临时文件失败: ${cleanupError.message}`, { projectId });
     }
 
     return false;
