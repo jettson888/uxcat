@@ -69,13 +69,13 @@ function bootstrap() {
           case "/v1/task-status":
             handleTaskStatus(req, res, requestData);
             break;
-          case "/platform/project/design/workflow/detail":
+          case "/v1/flow/detail":
             handleWorkflowDetail(req, res, requestData);
             break;
           case "/v1/generate-code":
             handleGenerateCode(req, res, requestData);
             break;
-          case "/platform/project":
+          case "/v1/platform/project":
             handlePlatformProject(req, res, requestData);
             break;
           default:
