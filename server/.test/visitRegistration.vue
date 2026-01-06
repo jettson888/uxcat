@@ -1,10 +1,10 @@
 <template>
-  <div class="visit-registration">
+ <div class="visit-registration">
     <div class="header">
-      <h2>到访登记</h2>
+      <h2 style="color:#fff;font-weight:bold">到访登记</h2>
       <p>请填写以下信息完成到访登记</p>
     </div>
-    <el-form :model="form" label-width="120px" class="registration-form">
+    <el-form :model="form" label-width="120px" class="registration-form" style="color:#fff;font-weight:bold">
       <el-form-item label="访客姓名">
         <el-input v-model="form.visitorName" placeholder="请输入访客姓名"/>
       </el-form-item>
@@ -12,30 +12,17 @@
         <el-input v-model="form.contact" placeholder="请输入联系方式"/>
       </el-form-item>
       <el-form-item label="到访时间">
-        <el-date-picker
-          v-model="form.visitTime"
-          type="datetime"
-          placeholder="选择到访时间"
-          format="yyyy-MM-dd HH:mm:ss"
-          value-format="yyyy-MM-dd HH:mm:ss"/>
+        <el-date-picker v-model="form.visitTime" type="datetime" placeholder="选择到访时间" format="yyyy-MM-dd HH:mm:ss" value-format="yyyy-MM-dd HH:mm:ss"/>    
       </el-form-item>
       <el-form-item label="接待人员">
         <el-select v-model="form.receptionist" placeholder="请选择接待人员">
-          <el-option
-            v-for="receptionist in receptionists"
-            :key="receptionist.id"
-            :label="receptionist.name"
-            :value="receptionist.id"/>
+          <el-option v-for="receptionist in receptionists" :key="receptionist.id" :label="receptionist.name" :value="receptionist.id"/>
         </el-select>
       </el-form-item>
       <el-form-item label="访问事由">
-        <el-input
-          type="textarea"
-          v-model="form.reason"
-          placeholder="请输入访问事由"
-          :rows="4"/>
+        <el-input type="textarea" v-model="form.reason" placeholder="请输入访问事由" :rows="4"/>
       </el-form-item>
-      <el-form-item>
+      <el-form-item style="color:#fff;font-weight:bold">
         <el-button type="primary" @click="submitForm">提交</el-button>
         <el-button @click="resetForm">取消</el-button>
       </el-form-item>
