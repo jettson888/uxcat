@@ -133,6 +133,32 @@ const tools = [
       const files = await getFiles(rootDir);
       return files.join("\n");
     }
+  },
+  {
+    name: "copy_file_to_client",
+    description: "将文件复制到client工程里",
+    input_schema: {
+      type: "object",
+      properties: {
+        src: { type: "string" },
+        dest: { type: "string" },
+      },
+      required: ["src", "dest"]
+    },
+    async execute({ src, dest }) {
+      try {
+        // copy并替换 先删除在复制 确保 src/components 目录存在
+        console.log(`开始复制文件: ${src} -> ${dest}`);
+        await fs.remove(dest);
+        await fs.ensureDir(path.dirname(dest));
+        await fs.copy(src, dest);
+        console.log(`文件复制成功: ${src} -> ${dest}`);
+        return true;
+      } catch (error) {
+        console.error(`文件复制失败: ${src} -> ${dest}`, error);
+        return false;
+      }
+    }
   }
 ];
 

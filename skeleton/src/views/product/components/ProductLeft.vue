@@ -233,7 +233,7 @@ const handleGenerateAll = async () => {
   try {
     // 调用后端接口生成全部页面
     const res = await request({
-      url: api.regenerateCode,
+      url: api.generateCode,
       method: "post",
       data: {
         projectId: props.projectId,

@@ -265,8 +265,15 @@ Web开发高级工程师
 设备类型：
 {{deviceType}}
 
+# 代码规范
+{{lintConfig}}
+
 # 代码检查
 - 生成完代码必须调用vue2_code_verification工具进行检查，检查完才能把代码写入到磁盘
+
+# 要求
+1. 生成的代码并且通过了vue2_code_verification工具的检查后存储到{{projectDir}}/{{projectId}}/1/code目录下
+2. 然后调用copy_file_to_client工具将代码复制到{{clientDir}}/src/dynamic目录下
 
 # 文件写入和读取
 写入: {{projectDir}}/{{projectId}}/1/code/{{pageId}}.vue

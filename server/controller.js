@@ -26,6 +26,8 @@ const projectManager = require('./utils/project-manager.js');
 const { generateCategoryList, enhanceCategoryListWithPageData } = require('./utils/data-handler.js');
 const { resetRoutes, insertClientAllRoutes } = require('./utils/routes-handler.js');
 const { copyAndReplaceTemplate } = require('./utils/file-handler.js');
+const { getHistoryByMessage } = require('./utils/history.js');
+const { generateCommonComponents } = require('./utils/generate-components.js');
 
 // 简单的文件锁机制，避免并发写入冲突
 const fileLocks = new Map(); // 存储锁的状态
@@ -388,6 +390,19 @@ async function handleGenerateCode(req, res, data) {
         let tasks = [];
         let message = '';
 
+        let commonComps = selectedPages;
+        if (isSinglePageRegenerate) {
+            commonComps.push({
+                name,
+                pageId,
+                description
+            })
+        }
+
+        setImmediate(() => {
+            executeCommonComponentsGeneration(commonComps)
+        })
+
         simpleLogger.info(`生成代码请求: projectId=${projectId}, isSinglePageRegenerate=${isSinglePageRegenerate}, selectedPages=${JSON.stringify(selectedPages)}, pageId=${pageId}, name=${name}, description=${description}`)
         if (isSinglePageRegenerate) {
             // 单页面重新生成
@@ -504,6 +519,15 @@ async function syncProjectWithPage(projectId, page, status) {
         }
     } catch (error) {
         simpleLogger.info(`同步项目 ${projectId} 页面 ${page.pageId} 状态 ${status} 失败: ${error.message}`);
+    }
+}
+
+async function executeCommonComponentsGeneration(commonComps) {
+    try {
+        const generateCommonComponentsResult = await generateCommonComponents(commonComps);
+        simpleLogger.info(`全局组件生成完毕: projectId=${projectId}, commonComps=${JSON.stringify(commonComps)}`, generateCommonComponentsResult)
+    } catch (error) {
+        console.log('全局组件生成错误: ', error)
     }
 }
 
@@ -993,6 +1017,8 @@ async function generatePageCode(page, context, signal) {
 
     console.log('generatePageCode:context----', context)
     simpleLogger.info('generatePageCode', '开始生成页面代码', { projectId: context.projectId, pageId: page.pageId, name });
+
+    const lintConfig = await getLintConfigs()
     // 使用代码模板
     const codePromptTemplate = context.components.length > 0 ? HZB_SYSTEM_PROMPT : CODE_PROMPT;
     const prompt = replacePlaceholders(codePromptTemplate, {
@@ -1005,6 +1031,7 @@ async function generatePageCode(page, context, signal) {
         publicComponents: '', // TODO: 从配置读取
         deviceType: 'PC',
         pageId: page.pageId,
+        lintConfig,
         projectId: context.projectId,
         projectDir: config.PROJECT_DIR,
         clientDir: config.CLIENT_DIR,
@@ -1056,61 +1083,7 @@ async function generatePageCode(page, context, signal) {
         // 即使任务抛错（如循环超限），我们仍尝试从历史消息中提取结果
     }
 
-    // 从消息历史中提取最终状态
-    let lastCode = '';
-    let lastFilePath = '';
-    let isVerified = false;
-    let verificationResult = null;
-    let toolResults = [];
-
-    // 遍历消息历史寻找工具调用结果
-    for (const msg of messages) {
-        if (msg.role === 'tool') {
-            try {
-                const content = JSON.parse(msg.content);
-
-                // 收集所有工具结果
-                toolResults.push({
-                    name: msg.name,
-                    result: content
-                });
-
-                // 2. 检查是否有成功的写入操作
-                if (msg.name === 'write_file' && content.success) {
-                    // 记录最后一次成功的写入
-                    // write_file 的 content 可能是简单的 success 消息，我们需要从对应的 tool_calls 参数中找代码
-                    // 但这里 tools.js 的 executeTool 返回的是 result
-                    // 实际上我们需要找对应的 tool_call 参数来获取 content/code
-                    // 让我们稍微回溯一下找到这个 tool_call
-                    const assistantMsg = messages.find(m =>
-                        m.tool_calls && m.tool_calls.some(tc => tc.id === msg.tool_call_id)
-                    );
-
-                    if (assistantMsg) {
-                        const toolCall = assistantMsg.tool_calls.find(tc => tc.id === msg.tool_call_id);
-                        if (toolCall) {
-                            const args = JSON.parse(toolCall.function.arguments);
-                            // 优先使用 content (write_file), 如果没有则可能是其他参数? 
-                            // file-tools.js 中 write_file 参数是 { path, content, ... }
-                            if (args.content) {
-                                lastCode = args.content;
-                                lastFilePath = args.path;
-                            }
-                        }
-                    }
-                }
-
-                // 3. 检查代码验证结果
-                if (msg.name === 'vue2_code_verification') {
-                    verificationResult = content;
-                    isVerified = content.success;
-                }
-
-            } catch (e) {
-                console.warn('解析工具结果失败:', e);
-            }
-        }
-    }
+    const { lastCode, lastFilePath, isVerified, verificationResult, toolResults } = getHistoryByMessage(messages);
     simpleLogger.info('generatePageCode', '任务执行完成', { projectId: context.projectId, pageId: page.pageId, name, success: !!lastCode, filePath: lastFilePath, isVerified, verificationResult, toolResults });
     return {
         success: !!lastCode, // 只要生成了代码就算初步成功
