@@ -1337,6 +1337,51 @@ async function handleProjectInit(req, res, data) {
     }));
 }
 
+async function handleProjectSnapshot(req, res, data) {
+    const { projectId, pageId, imgUrl } = data
+    const version = '1';
+    const folderName = 'snapshot';
+    const staticSnapshotDir = path.join(config.ASSETS_DIR, projectId, version, folderName);
+    const snapshotDir = path.join(config.PROJECT_DIR, projectId, version, folderName);
+    await fs.ensureDir(snapshotDir);
+    await fs.ensureDir(staticSnapshotDir);
+    const staticFilePath = path.join(staticSnapshotDir, pageId + ".png");
+    const filePath = path.join(snapshotDir, pageId + ".png");
+
+    if (!imgUrl.includes(";base64,")) {
+        throw new Error("Invalid base64 image format");
+    }
+    const base64String = imgUrl.split(";base64,").pop();
+    const buffer = Buffer.from(base64String, "base64");
+    await fs.writeFile(filePath, buffer);
+    await fs.writeFile(staticFilePath, buffer);
+
+    const flow = await readWorkflowSafely(projectId);
+    let projectImgUrl = "";
+    if (flow) {
+        for (const page of flow.pages) {
+            if (page.pageId === pageId) {
+                page.imgUrl = `/assets/${projectId}/${version}/snapshot/${pageId}.png`;
+                projectImgUrl = page.imgUrl;
+                break;
+            }
+        }
+    }
+    await projectManager.updateProject({
+        projectId,
+        imgUrl: projectImgUrl
+    });
+
+    res.writeHead(200, { "Content-Type": "application/json" });
+    res.end(JSON.stringify({
+        success: true,
+        data: {
+            message: "Snapshot saved successfully"
+        }
+    }));
+    res.end();
+}
+
 module.exports = {
     handleChatCompletions,
     handleGenerateCode,
@@ -1345,4 +1390,5 @@ module.exports = {
     handleWorkflowDetail,
     handleProjectPages,
     handleProjectInit,
+    handleProjectSnapshot,
 }

@@ -43,7 +43,7 @@ const createApiEndpoints = async () => {
     getPages: `${proxyPrefix}/v1/project/pages`,
     regenerateCode: `${proxyPrefix}/v1/regenerate-code`,
     generateRecode: `${proxyPrefix}/v1/generate-recode`,
-    saveThumbnail: `${proxyPrefix}/platform/project/upload/pages/img`,
+    saveThumbnail: `${proxyPrefix}/v1/project/snapshot`,
     sendError: `${proxyPrefix}/platform/project/page/error`, // 发送报错信息
     generateStyles: `${proxyPrefix}/v1/generate-styles`, // 可视化数据修改
 

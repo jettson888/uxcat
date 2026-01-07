@@ -11,7 +11,8 @@ const {
   handleTaskStatus,
   handleWorkflowDetail,
   handleProjectPages,
-  handleProjectInit
+  handleProjectInit,
+  handleProjectSnapshot
 } = require('./controller.js');
 
 
@@ -36,8 +37,8 @@ function bootstrap() {
 
     // 处理图片请求
     if (pathname.startsWith("/assets/") && pathname.endsWith(".png")) {
-      const homeDir = config.AIUX_DIR;
-      const filePath = path.join(homeDir, pathname);
+      const AIUX_Dir = config.AIUX_DIR;
+      const filePath = path.join(AIUX_Dir, pathname);
       fs.readFile(filePath, (err, data) => {
         if (err) {
           res.writeHead(404);
@@ -91,6 +92,9 @@ function bootstrap() {
             break;
           case "/v1/project/initial":
             handleProjectInit(req, res, requestData);
+            break;
+          case "/v1/project/snapshot":
+            handleProjectSnapshot(req, res, requestData);
             break;
           default:
             res.writeHead(404, { "Content-Type": "application/json" });

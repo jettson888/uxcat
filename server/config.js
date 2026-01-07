@@ -6,6 +6,7 @@ const { OPEN_ROUTER_KEY } = require('./secret')
 const common = {
   ROOT_DIR,
   AIUX_DIR: 'D:/frontend-code/ai-ux',
+  ASSETS_DIR: 'D:/frontend-code/ai-ux/assets',
   PROJECT_DIR: 'D:/frontend-code/hzux',
   UI_DOCS_CONFIG: {
     REQUEST_URL: "http://197.68.33.72:6007/llm/knowledge_chat/invoke",
