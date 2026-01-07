@@ -6,7 +6,7 @@ const path = require('path');
 async function getLintConfigs() {
     let configContent = 'Linting Rules Content:\n';
     try {
-        const eslintRc = await fs.readFile(path.join(__dirname, '.eslintrc.js'), {
+        const eslintRc = await fs.readFile('../.eslintrc.js', {
             encoding: 'utf8'
         });
         configContent += `\n--- .eslintrc.js ---\n${eslintRc}\n`;
@@ -15,7 +15,7 @@ async function getLintConfigs() {
     }
 
     try {
-        const lintOverride = await fs.readFile(path.join(__dirname, 'lint-override.js'), {
+        const lintOverride = await fs.readFile('../lint-override.js', {
             encoding: 'utf8'
         });
         configContent += `\n--- lint-override.js ---\n${lintOverride}\n`;
@@ -26,7 +26,11 @@ async function getLintConfigs() {
     return configContent;
 }
 
-
+// async function run() {
+// const lintConfig = await getLintConfigs()
+// console.log(lintConfig)
+// }
+run()
 module.exports = {
     getLintConfigs
 }

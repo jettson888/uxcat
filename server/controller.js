@@ -390,19 +390,6 @@ async function handleGenerateCode(req, res, data) {
         let tasks = [];
         let message = '';
 
-        let commonComps = selectedPages;
-        if (isSinglePageRegenerate) {
-            commonComps.push({
-                name,
-                pageId,
-                description
-            })
-        }
-
-        setImmediate(() => {
-            executeCommonComponentsGeneration(commonComps)
-        })
-
         simpleLogger.info(`生成代码请求: projectId=${projectId}, isSinglePageRegenerate=${isSinglePageRegenerate}, selectedPages=${JSON.stringify(selectedPages)}, pageId=${pageId}, name=${name}, description=${description}`)
         if (isSinglePageRegenerate) {
             // 单页面重新生成
@@ -522,17 +509,29 @@ async function syncProjectWithPage(projectId, page, status) {
     }
 }
 
-async function executeCommonComponentsGeneration(commonComps) {
+/**
+ * 执行公共组件生成（作为队列任务）
+ * @param {string} projectId - 项目ID
+ * @param {Array} pages - 页面列表
+ * @returns {Promise<Object>} 生成结果
+ */
+async function executeCommonComponentsGeneration(projectId, pages) {
     try {
-        const generateCommonComponentsResult = await generateCommonComponents(commonComps);
-        simpleLogger.info(`全局组件生成完毕: projectId=${projectId}, commonComps=${JSON.stringify(commonComps)}`, generateCommonComponentsResult)
+        simpleLogger.info('executeCommonComponentsGeneration', `开始生成公共组件`, { projectId, pageCount: pages.length });
+        const generateCommonComponentsResult = await generateCommonComponents(projectId, pages);
+        simpleLogger.info('executeCommonComponentsGeneration', `全局组件生成完毕`, { projectId, result: generateCommonComponentsResult });
+        return { success: true, ...generateCommonComponentsResult };
     } catch (error) {
-        console.log('全局组件生成错误: ', error)
+        // 组件生成失败不阻断后续页面生成
+        console.log('全局组件生成错误: ', error);
+        simpleLogger.error('executeCommonComponentsGeneration', `全局组件生成失败`, { projectId, error: error.message });
+        return { success: false, error: error.message };
     }
 }
 
 /**
  * 执行代码生成（批量，使用队列管理）
+ * 流程：先生成公共组件（作为队列第一个任务），然后生成各页面
  */
 async function executeCodeGeneration(projectId, pages) {
     simpleLogger.divider(`开始批量生成 ${pages.length} 个页面 (Project: ${projectId})`);
@@ -540,7 +539,42 @@ async function executeCodeGeneration(projectId, pages) {
     console.log(`\n📦 开始批量生成 ${pages.length} 个页面`);
 
     try {
-        const task = (page) => {
+        // 1. 先创建公共组件生成任务（作为队列第一个任务）
+        const componentTaskId = `generate-components-${projectId}`;
+        const componentTask = {
+            pageId: componentTaskId, // 使用特殊的 pageId 标识组件任务
+            taskFn: async () => {
+                simpleLogger.step(`开始生成公共组件`, { projectId });
+                console.log(`\n🧩 开始生成公共组件...`);
+
+                try {
+                    const result = await executeCommonComponentsGeneration(projectId, pages);
+                    if (result.success) {
+                        console.log(`✅ 公共组件生成完成`);
+                    } else {
+                        console.log(`⚠️  公共组件生成失败，继续执行页面生成`);
+                    }
+                    return result;
+                } catch (error) {
+                    // 组件生成失败不阻断后续任务
+                    console.log(`⚠️  公共组件生成出错，继续执行页面生成: ${error.message}`);
+                    simpleLogger.warn(`公共组件生成出错，继续执行页面生成`, { projectId, error: error.message });
+                    return { success: false, error: error.message };
+                }
+            }
+        };
+
+        // 先把页面状态设置进去，然后等待所有组件分析好通用组件生成完，再生成页面
+        pages.forEach(async page => {
+            const taskId = `generate-code-${projectId}-${page.pageId}`;
+            taskManager.startTask(taskId);
+            await syncProjectWithPage(projectId, page, 'generating')
+        });
+
+        await componentTask.taskFn()
+
+        // 2. 创建页面生成任务
+        const createPageTask = (page) => {
             return {
                 pageId: page.pageId,
                 taskFn: async (signal) => {
@@ -582,18 +616,29 @@ async function executeCodeGeneration(projectId, pages) {
                     }
                 }
             }
+        };
+
+        // 3. 组合任务：公共组件任务 + 页面任务
+        const pageTasks = pages.map(page => createPageTask(page));
+        const allTasks = [...pageTasks];
+
+        // 4. 使用队列管理器批量执行（组件任务会先执行）
+        const results = await pageQueueManager.addBatchTasks(allTasks);
+
+        // 5. 统计结果（排除组件任务）
+        const pageResults = results.slice(1); // 跳过组件任务结果
+        const successCount = pageResults.filter(r => r.status === 'fulfilled' && r.value?.success).length;
+        const failedCount = pageResults.length - successCount;
+
+        // 记录组件生成结果
+        const componentResult = results[0];
+        if (componentResult.status === 'fulfilled' && componentResult.value?.success) {
+            simpleLogger.info(`公共组件生成成功`, { projectId });
+        } else {
+            simpleLogger.warn(`公共组件生成未完全成功`, { projectId, result: componentResult });
         }
-        // 为每个页面创建生成任务
-        const tasks = pages.map(page => task(page));
 
-        // 使用队列管理器批量执行
-        const results = await pageQueueManager.addBatchTasks(tasks);
-
-        // 统计结果
-        const successCount = results.filter(r => r.status === 'fulfilled' && r.value.success).length;
-        const failedCount = results.length - successCount;
-
-        simpleLogger.info(`批量生成完成 Summary`, { successCount, failedCount, total: results.length });
+        simpleLogger.info(`批量生成完成 Summary`, { successCount, failedCount, total: pageResults.length });
         console.log(`\n✅ 批量生成完成: ${successCount} 成功, ${failedCount} 失败`);
 
     } catch (error) {

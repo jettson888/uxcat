@@ -11,9 +11,16 @@ const { replacePlaceholders } = require('../utils/slot-template.js');
 const { callChatCompletion } = require('./api.js');
 const { getHistoryByMessage } = require('./history.js');
 
-async function generateCommonComponents(pages) {
+/**
+ * 生成公共组件
+ * @param {string} projectId - 项目ID
+ * @param {Array} pages - 页面列表
+ * @param {AbortSignal} signal - 取消信号（可选）
+ * @returns {Promise<Object>} 生成结果
+ */
+async function generateCommonComponents(projectId, pages) {
   console.log("正在分析页面以生成公共组件...");
-  simpleLogger.info('正在分析页面以生成公共组件...');
+  simpleLogger.info('generateCommonComponents', '正在分析页面以生成公共组件...', { projectId, pageCount: pages.length });
 
   const pagesDesc = pages.map(p => `Page: ${p.name} (${p.pageId})\nDescription: ${p.description}`).join('\n\n');
   const componentPrompt = `
@@ -71,6 +78,7 @@ ${pagesDesc} \n\n
   const lintConfig = await getLintConfigs()
   const prompt = replacePlaceholders(componentPrompt, {
     projectDir: config.PROJECT_DIR,
+    projectId: projectId,
     clientDir: config.CLIENT_DIR,
     lintConfig,
     icons: HZB_ICONS,
@@ -89,10 +97,14 @@ ${pagesDesc} \n\n
 
   // 使用超时控制包装器
   const task = async (signal) => {
+    // 检查外部传入的 signal 是否已取消
+    if (signal?.aborted) {
+      throw new Error('组件生成任务被取消');
+    }
     const options = {
       messages,
       tools: availableTools,
-      signal,
+      signal: signal,
       // transaction: false,  // 是否支持事务
       callback: async (messages, tools) => {
         return await callChatCompletion({
@@ -114,7 +126,13 @@ ${pagesDesc} \n\n
   await callWithTimeoutAndRetry(task, 3, 600000);
 
   const { lastCode, lastFilePath, isVerified, verificationResult, toolResults } = getHistoryByMessage(messages);
-  simpleLogger.info('公共组件生成完毕', { lastCode, lastFilePath, isVerified, verificationResult, toolResults });
+  simpleLogger.info('generateCommonComponents', '公共组件生成完毕', {
+    projectId,
+    success: !!lastCode,
+    filePath: lastFilePath,
+    isVerified,
+    toolResults: toolResults?.length || 0
+  });
 
   return {
     success: !!lastCode,
