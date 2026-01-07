@@ -455,58 +455,18 @@ const fetchTaskStatus = async ()=>{
         type: 'code',
       },
     });
-    const { task } = response
-    if (
-      task.status === "completed" ||
-      task.status === "timeout" ||
-      task.status === "failed"
-    ) {
+    const { task:tasks } = response
+    // tasks 里没有generating 就停止轮询并且fetch数据
+    if (tasks.every(task => task.status !== "generating")) {
       stopPolling();
+      fetchPageData();
     }
-    if (task.status === "completed") {
-      refreshPageData();
-    } else {
-    }
-  } catch (error) {
-    
-  }
-}
-
-
-// 轮询刷新页面数据
-const refreshPageData = async () => {
-
-  try {
-    const newCategoryList = await fetchPageData();
-    debugger
-    // 更新页面列表数据，保持激活状态
-    newCategoryList.forEach((ls) => {
-      ls.list.forEach((page) => {
-        // 如果当前有选中的页面
-        if (selectedPage.value && page.pageId === selectedPage.value.pageId) {
-          page.active = true; // 激活当前页面
-          if (
-            selectedPage.value.status != "done" ||
-            page.status == "generating"
-          ) {
-            // 如果当前选中的页面是生成中则更新选中页面的数据
-            selectedPage.value = page;
-          }
-        } else {
-          page.active = false;
-        }
-      });
-    });
-    categoryList.value = newCategoryList;
-
-    // 检查是否还需要继续轮询
-    checkAndStartPolling();
   } catch (error) {
     console.error("轮询刷新页面数据失败", error);
     // 出错时也检查是否需要继续轮询
     checkAndStartPolling();
   }
-};
+}
 
 // 计算iframe样式，支持等比例缩小
 const getIframeStyle = () => {

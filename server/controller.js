@@ -23,6 +23,9 @@ const path = require('path');
 const { readWorkflowSafely, writeWorkflowSafely } = require('./utils/workflow-file-handler.js');
 const logger = require('./utils/logger.js');
 const projectManager = require('./utils/project-manager.js');
+const { generateCategoryList, enhanceCategoryListWithPageData } = require('./utils/data-handler.js');
+const { resetRoutes, insertClientAllRoutes } = require('./utils/routes-handler.js');
+const { copyAndReplaceTemplate } = require('./utils/file-handler.js');
 
 // 简单的文件锁机制，避免并发写入冲突
 const fileLocks = new Map(); // 存储锁的状态
@@ -1293,17 +1296,45 @@ async function handleProjectPages(req, res, data) {
     try {
         const workflow = await readWorkflowSafely(projectId);
         if (workflow) {
+            const workFlows = workflow.workflows;
+            const categoryList = generateCategoryList(workFlows);
+            const finalCateList = enhanceCategoryListWithPageData(
+                categoryList,
+                workflow
+            );
             res.writeHead(200, { "Content-Type": "application/json" });
             res.end(JSON.stringify({
                 success: true,
                 data: {
-                    list: workflow.pages || [],
+                    categoryList: finalCateList,
                 }
             }));
         }
     } catch (error) {
 
     }
+}
+
+async function handleProjectInit(req, res, data) {
+    const { projectId } = data
+    // 初始化项目
+    // 1. 重置路由
+    // 2. copy并替换代码
+    // 3. 插入最新路由
+    const routePath = path.join(config.CLIENT_DIR, 'src', 'router', 'index.js');
+    await resetRoutes(routePath);
+    await copyAndReplaceTemplate(projectId);
+    const workflow = await readWorkflowSafely(projectId);
+    if (workflow && workflow.pages) {
+        await insertClientAllRoutes(workflow.pages)
+    }
+    res.writeHead(200, { "Content-Type": "application/json" });
+    res.end(JSON.stringify({
+        success: true,
+        data: {
+            message: "初始化完成"
+        }
+    }));
 }
 
 module.exports = {
@@ -1313,4 +1344,5 @@ module.exports = {
     handleTaskStatus,
     handleWorkflowDetail,
     handleProjectPages,
+    handleProjectInit,
 }

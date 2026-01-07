@@ -7,10 +7,11 @@ import MessageUtils from '@/common/utils.js';
 Vue.use(Router);
 
 const staticRoutes = [
-  {
-    path: "/",
-    redirect: "/homePage",
-  }, {
+      {
+          path: "/",
+          redirect: "/homePage",
+      },
+    {
     "path": "/homePage",
     "name": "homePage",
     "meta": {
@@ -19,118 +20,54 @@ const staticRoutes = [
     component: () => import('@/views/dynamic/homePage.vue')
 },
     {
-    "path": "/personalBanking",
-    "name": "personalBanking",
+    "path": "/taskCreate",
+    "name": "taskCreate",
     "meta": {
         "dynamic": true
     },
-    component: () => import('@/views/dynamic/personalBanking.vue')
+    component: () => import('@/views/dynamic/taskCreate.vue')
 },
     {
-    "path": "/corporateBanking",
-    "name": "corporateBanking",
+    "path": "/taskList",
+    "name": "taskList",
     "meta": {
         "dynamic": true
     },
-    component: () => import('@/views/dynamic/corporateBanking.vue')
+    component: () => import('@/views/dynamic/taskList.vue')
 },
     {
-    "path": "/newsCenter",
-    "name": "newsCenter",
+    "path": "/taskDetail",
+    "name": "taskDetail",
     "meta": {
         "dynamic": true
     },
-    component: () => import('@/views/dynamic/newsCenter.vue')
+    component: () => import('@/views/dynamic/taskDetail.vue')
 },
     {
-    "path": "/customerService",
-    "name": "customerService",
+    "path": "/taskEdit",
+    "name": "taskEdit",
     "meta": {
         "dynamic": true
     },
-    component: () => import('@/views/dynamic/customerService.vue')
+    component: () => import('@/views/dynamic/taskEdit.vue')
 },
     {
-    "path": "/accountManagement",
-    "name": "accountManagement",
+    "path": "/taskAssign",
+    "name": "taskAssign",
     "meta": {
         "dynamic": true
     },
-    component: () => import('@/views/dynamic/accountManagement.vue')
+    component: () => import('@/views/dynamic/taskAssign.vue')
 },
     {
-    "path": "/savingsAndWealth",
-    "name": "savingsAndWealth",
+    "path": "/taskReport",
+    "name": "taskReport",
     "meta": {
         "dynamic": true
     },
-    component: () => import('@/views/dynamic/savingsAndWealth.vue')
-},
-    {
-    "path": "/personalLoan",
-    "name": "personalLoan",
-    "meta": {
-        "dynamic": true
-    },
-    component: () => import('@/views/dynamic/personalLoan.vue')
-},
-    {
-    "path": "/corporateAccounts",
-    "name": "corporateAccounts",
-    "meta": {
-        "dynamic": true
-    },
-    component: () => import('@/views/dynamic/corporateAccounts.vue')
-},
-    {
-    "path": "/corporateLoans",
-    "name": "corporateLoans",
-    "meta": {
-        "dynamic": true
-    },
-    component: () => import('@/views/dynamic/corporateLoans.vue')
-},
-    {
-    "path": "/internationalBusiness",
-    "name": "internationalBusiness",
-    "meta": {
-        "dynamic": true
-    },
-    component: () => import('@/views/dynamic/internationalBusiness.vue')
-},
-    {
-    "path": "/newsDetail",
-    "name": "newsDetail",
-    "meta": {
-        "dynamic": true
-    },
-    component: () => import('@/views/dynamic/newsDetail.vue')
-},
-    {
-    "path": "/faq",
-    "name": "faq",
-    "meta": {
-        "dynamic": true
-    },
-    component: () => import('@/views/dynamic/faq.vue')
-},
-    {
-    "path": "/onlineSupport",
-    "name": "onlineSupport",
-    "meta": {
-        "dynamic": true
-    },
-    component: () => import('@/views/dynamic/onlineSupport.vue')
-},
-    {
-    "path": "/branchLocator",
-    "name": "branchLocator",
-    "meta": {
-        "dynamic": true
-    },
-    component: () => import('@/views/dynamic/branchLocator.vue')
+    component: () => import('@/views/dynamic/taskReport.vue')
 }
-];
+  ];
 
 // 创建并导出路由实例
 const router = new Router({

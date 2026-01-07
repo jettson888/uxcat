@@ -63,7 +63,7 @@ const createApiEndpoints = async () => {
     getWorkflowDetail: `${proxyPrefix}/v1/flow/detail`,
 
     // 替换所有内容接口
-    initial: `${proxyPrefix}/platform/initial`,
+    initial: `${proxyPrefix}/v1/project/initial`,
   }
 }
 

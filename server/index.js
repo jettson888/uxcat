@@ -4,7 +4,15 @@ const fs = require('fs-extra');
 const path = require('path');
 const url = require("url");
 const config = require('./config.js');
-const { handleChatCompletions, handleGenerateCode, handlePlatformProject, handleTaskStatus, handleWorkflowDetail, handleProjectPages } = require('./controller.js');
+const {
+  handleChatCompletions,
+  handleGenerateCode,
+  handlePlatformProject,
+  handleTaskStatus,
+  handleWorkflowDetail,
+  handleProjectPages,
+  handleProjectInit
+} = require('./controller.js');
 
 
 function bootstrap() {
@@ -80,6 +88,9 @@ function bootstrap() {
             break;
           case "/v1/project/pages":
             handleProjectPages(req, res, requestData);
+            break;
+          case "/v1/project/initial":
+            handleProjectInit(req, res, requestData);
             break;
           default:
             res.writeHead(404, { "Content-Type": "application/json" });
