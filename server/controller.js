@@ -1064,8 +1064,10 @@ async function generatePageCode(page, context, signal) {
     simpleLogger.info('generatePageCode', '开始生成页面代码', { projectId: context.projectId, pageId: page.pageId, name });
 
     const lintConfig = await getLintConfigs()
+    console.log('lintConfig-----', lintConfig)
     // 使用代码模板
     const codePromptTemplate = context.components.length > 0 ? HZB_SYSTEM_PROMPT : CODE_PROMPT;
+    const publicComponents = path.join(config.PROJECT_DIR, context.projectId, '1', 'components');
     const prompt = replacePlaceholders(codePromptTemplate, {
         pageName: name,
         pageDesc: description,
@@ -1073,7 +1075,7 @@ async function generatePageCode(page, context, signal) {
         components: context.components,
         icons: context.icons, // TODO: 从配置读取
         projectDirs: '', // TODO: 从配置读取
-        publicComponents: '', // TODO: 从配置读取
+        publicComponents,
         deviceType: 'PC',
         pageId: page.pageId,
         lintConfig,

@@ -177,10 +177,12 @@ Web开发高级工程师
 # 项目结构
 {{projectDirs}}
 
-# 公共组件定义
-{{publicComponents}}
-
-{{components}}
+全局组件路径：{{publicComponents}}，可以在这个路径中找到这些组件， 可以在生成页面时如有需要的话用到它们。
+- 使用示例
+ <script>
+      import SomeComponent from '@/components/ComponentName.vue'
+      export default {   componnets: { SomeComponent  }   }
+  </script>
 
 页面名称：
 {{pageName}}
@@ -199,7 +201,7 @@ Web开发高级工程师
 
 # 要求
 1. 生成的代码并且通过了vue2_code_verification工具的检查后存储到{{projectDir}}/{{projectId}}/1/code目录下
-2. 然后调用copy_file_to_client工具将代码复制到{{clientDir}}/src/dynamic目录下
+2. 然后调用copy_file_to_client工具将代码复制到{{clientDir}}/src/views/dynamic目录下
 
 # 文件写入和读取
 写入: {{projectDir}}/{{projectId}}/1/code/{{pageId}}.vue
